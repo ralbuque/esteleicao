@@ -71,6 +71,22 @@ python baixar_dados.py --ano 2022
 python baixar_dados.py --zip caminho/do/arquivo.zip
 ```
 
+Para a comparação histórica com 2022, os comandos usam diretamente as fontes
+oficiais do TSE:
+
+```bash
+python baixar_dados.py --ano 2022 --turno 1
+python baixar_logs.py --ano 2022 --turno 1 --ufs AC
+```
+
+O primeiro comando baixa o detalhe oficial por seção; o segundo baixa os
+arquivos transmitidos para totalização e processa os logs `.logjez` de 2022.
+Depois de processar os estados desejados, a aba **Histórico** fica disponível
+para comparar 2022 com a eleição selecionada. As fontes são o [conjunto de
+resultados de 2022](https://dadosabertos.tse.jus.br/lv/dataset/resultados-2022)
+e o [conjunto de arquivos transmitidos para totalização de
+2022](https://dadosabertos.tse.jus.br/dataset/resultados-2022-arquivos-transmitidos-para-totalizacao).
+
 Se o download falhar, baixe manualmente o arquivo **"Detalhe da apuração por
 seção eleitoral"** em <https://dadosabertos.tse.jus.br/dataset/resultados-2026>
 e use `--zip`.
@@ -100,6 +116,7 @@ Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md): `python deploy/empaco
 - **Sem digital**: % de eleitores liberados sem digital hora a hora (separando "sem cadastro" de "liberação manual"), média ± desvio por subunidade, gráfico proporção × tamanho da seção e lista das seções acima do esperado.
 - **Cruzamento**: escolha na barra lateral quais critérios precisam valer ao mesmo tempo (abstenção baixa, votação tardia, muitos sem digital, liberação manual alta). Cada seção vira um ponto; as que passam em todos os critérios ficam destacadas e listadas com os sinais encontrados no log.
 - **Detalhe da seção**: seção vs zona, município, UF e Brasil; percentis; abstenções esperadas; perfil hora a hora comparado com as outras seções da mesma escola e com o município; e as outras seções do **mesmo local de votação**.
+- **Histórico**: compara a eleição selecionada com outra eleição processada, pareando por UF + município + zona + seção. Mostra critérios persistentes, novos, resolvidos, variações de abstenção e seções sem correspondente. O pareamento exato é conservador: mudanças de numeração ou de divisão aparecem separadas e não são tratadas automaticamente como a mesma seção.
 
 ## Como uma seção é sinalizada
 

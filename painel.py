@@ -14,6 +14,7 @@ import streamlit as st
 
 from analise import (juntar_horario, limites_funil, perfil_horario, pontuar_secoes, resumo,
                      resumo_coluna, votos_por_hora)
+from comparacao import comparar_secoes, filtrar_contexto, nome_eleicao, resumo_comparacao
 
 st.set_page_config(page_title="Abstenção por seção", page_icon="🗳️", layout="wide")
 PASTA = Path(__file__).parent / "dados"
@@ -460,9 +461,9 @@ if secao != TODOS:
     st.stop()
 
 # ---------------------------------------------------------------- abas
-aba_comp, aba_dist, aba_funil, aba_alertas, aba_hora, aba_dig, aba_cruz = st.tabs(
+aba_comp, aba_dist, aba_funil, aba_alertas, aba_hora, aba_dig, aba_cruz, aba_hist = st.tabs(
     ["📊 Comparar", "📈 Distribuição", "🔻 Funil", "🚩 Sinalizadas",
-     "⏰ Horário dos votos", "🖐️ Sem digital", "🔀 Cruzamento"])
+     "⏰ Horário dos votos", "🖐️ Sem digital", "🔀 Cruzamento", "🗓️ Histórico"])
 
 if uf == TODOS:
     filho, rotulo = ["uf"], "uf"
@@ -876,3 +877,86 @@ with aba_cruz:
         if ev_c and ev_c.selection and ev_c.selection.rows:
             st.divider()
             detalhe_secao(sel.iloc[ev_c.selection.rows[0]])
+
+# ---------------------------------------------------------------- comparação histórica
+with aba_hist:
+    historicos = [p for p in arquivos if p != arquivo]
+    if not historicos:
+        st.info("É preciso ter pelo menos duas eleições processadas para comparar. "
+                "Por exemplo: `python baixar_dados.py --ano 2022`.")
+    else:
+        hist_arquivo = st.selectbox(
+            "Comparar a eleição atual com",
+            historicos,
+            format_func=nome_eleicao,
+            key="eleicao_historica",
+        )
+        assinatura_hist = tuple((a.name, a.stat().st_mtime)
+                                for a in [hist_arquivo, *arquivos_logs(hist_arquivo)])
+        historica = carregar(str(hist_arquivo), assinatura_hist, incluir_zz)
+        historica = historica.assign(z_abst_baixa=-historica["z_ajustado"])
+        historica = historica.assign(score_cruzado=calcular_score(historica))
+
+        # Aplica a seleção geográfica atual ao outro ano, mas mantém o outer join
+        # dentro de comparar_secoes para revelar seções criadas ou ausentes.
+        historica = filtrar_contexto(historica, uf, mun, zona, secao, TODOS)
+        historica = sinalizar(historica)
+        atual_hist = sinalizar(df.copy())
+        rotulos_hist = (nome_eleicao(hist_arquivo), nome_eleicao(arquivo))
+        comparacao = comparar_secoes(historica, atual_hist, rotulos_hist)
+        resumo_hist = resumo_comparacao(comparacao, rotulos_hist).iloc[0]
+        ant, atu = rotulos_hist
+
+        st.subheader(f"{ant} × {atu}")
+        st.caption("O pareamento é conservador: mesma UF, município, zona e número da seção. "
+                   "Seções criadas, extintas ou renumeradas aparecem separadamente. "
+                   "Persistência estatística não é prova de irregularidade; serve para priorizar "
+                   "a análise do contexto.")
+        k = st.columns(5)
+        k[0].metric("Linhas comparadas", f"{int(resumo_hist['linhas']):,}".replace(",", "."))
+        k[1].metric("Pareadas nos dois anos", f"{int(resumo_hist['pareadas']):,}".replace(",", "."))
+        k[2].metric("Persistentes", int(resumo_hist.get("situacao_persistente", 0)))
+        k[3].metric("Novas", int(resumo_hist.get(f"situacao_nova em {atu}", 0)))
+        k[4].metric("Resolvidas", int(resumo_hist.get(f"situacao_resolvida em {atu}", 0)))
+
+        situacoes = sorted(comparacao["situacao"].dropna().unique())
+        preferidas = [s for s in situacoes
+                      if s in {"persistente", f"nova em {atu}", f"resolvida em {atu}"}]
+        escolhidas = st.multiselect(
+            "Mostrar situações",
+            situacoes,
+            default=preferidas or situacoes,
+            key="situacoes_historicas",
+        )
+        vis = comparacao[comparacao["situacao"].isin(escolhidas)].copy() if escolhidas else comparacao.iloc[0:0]
+        cols_hist = [
+            "uf", "cd_municipio", "zona", "secao", "pareamento", "situacao",
+            f"taxa_abstencao_{ant}", f"taxa_abstencao_{atu}", "delta_taxa_abstencao",
+            f"z_ajustado_{ant}", f"z_ajustado_{atu}", "delta_z_ajustado",
+            f"n_criterios_{ant}", f"n_criterios_{atu}",
+            f"criterios_cumpridos_{ant}", f"criterios_cumpridos_{atu}",
+        ]
+        cols_hist = [c for c in cols_hist if c in vis]
+        st.write(f"**{len(vis):,}** seções na seleção atual.")
+        st.dataframe(
+            vis[cols_hist].sort_values(["situacao", "delta_z_ajustado"], ascending=[True, False]),
+            hide_index=True,
+            width="stretch",
+            height=460,
+            column_config={**{
+                c: st.column_config.NumberColumn(format="percent")
+                for c in [f"taxa_abstencao_{ant}", f"taxa_abstencao_{atu}", "delta_taxa_abstencao"]
+            }, **{
+                c: st.column_config.NumberColumn(format="%.2f")
+                for c in [f"z_ajustado_{ant}", f"z_ajustado_{atu}", "delta_z_ajustado"]
+            }},
+        )
+        st.download_button(
+            "⬇️ Baixar comparação (CSV)",
+            vis[cols_hist].to_csv(index=False, sep=";", decimal=",").encode("utf-8-sig"),
+            "comparacao_historica.csv",
+            "text/csv",
+            key="dl_historico",
+        )
+        st.caption("Próxima extensão possível: parear também pelo local de votação/endereço para "
+                   "acompanhar escolas em que a numeração das seções mudou.")
