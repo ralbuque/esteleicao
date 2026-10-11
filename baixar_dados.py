@@ -23,6 +23,11 @@ import requests
 URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/detalhe_votacao_secao/detalhe_votacao_secao_{ano}.zip"
 PASTA = Path(__file__).parent / "dados"
 
+
+def url_resultados(ano: int) -> str:
+    """URL oficial do TSE para o detalhe da apuração por seção."""
+    return URL.format(ano=ano)
+
 # Colunas que usamos. As marcadas como opcionais podem não existir em todos os anos.
 OBRIGATORIAS = ["NR_TURNO", "SG_UF", "CD_MUNICIPIO", "NM_MUNICIPIO", "NR_ZONA", "NR_SECAO",
                 "CD_CARGO", "DS_CARGO", "QT_APTOS", "QT_COMPARECIMENTO", "QT_ABSTENCOES"]
@@ -36,7 +41,7 @@ def baixar(ano: int) -> Path:
     if destino.exists() and destino.stat().st_size > 0:
         print(f"Zip já existe: {destino} (apague para baixar de novo)")
         return destino
-    url = URL.format(ano=ano)
+    url = url_resultados(ano)
     print(f"Baixando {url}")
     tmp = destino.with_suffix(".part")
     with requests.get(url, stream=True, timeout=60,

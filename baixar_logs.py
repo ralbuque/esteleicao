@@ -46,6 +46,11 @@ UFS = ["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "
 PASTA = Path(__file__).parent / "dados"
 
 
+def url_logs(ano: int, turno: int, uf: str) -> str:
+    """URL oficial do TSE dos arquivos transmitidos para totalização."""
+    return URL.format(ano=ano, turno=turno, uf=uf.upper())
+
+
 # ------------------------------------------------------------------ leitura do zip
 def iterar_logjez(zf: zipfile.ZipFile, prefixo: str = ""):
     """Percorre o zip (e zips dentro dele) devolvendo (nome, bytes) de cada log de urna."""
@@ -180,7 +185,7 @@ def main():
             print(f"{uf}: já processado ({saida.name}); use --refazer para refazer")
             continue
         print(f"\n=== {uf} ({ano}, {turno}º turno) ===")
-        url = (a.url or URL).format(ano=ano, turno=turno, uf=uf)
+        url = a.url.format(ano=ano, turno=turno, uf=uf) if a.url else url_logs(ano, turno, uf)
         completo = PASTA / f"arqurna_{ano}_{turno}t_{uf}.zip"
         try:
             if zip_local:
