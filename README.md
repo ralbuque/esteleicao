@@ -26,6 +26,18 @@ streamlit run painel.py
 
 Nas próximas vezes, basta `source .venv/bin/activate` e `streamlit run painel.py`.
 
+### Votos por candidato (% Lula, % Flávio Bolsonaro, % outros/nulos)
+
+```bash
+python baixar_votos.py
+```
+
+Baixa a "Votação por seção eleitoral" do TSE (≈160 MB, um arquivo para o Brasil)
+e gera `dados/votos_2026_t1.parquet` com a % de votos de cada seção para o nº 13
+(Lula), o nº 22 (Flávio Bolsonaro) e o restante (demais candidatos + brancos +
+nulos). O painel junta esse arquivo automaticamente e mostra as três colunas na
+aba **Sinalizadas** (e no CSV exportado). Aceita `--turno 2` e `--zip arquivo.zip`.
+
 ### Logs de urna (horário dos votos e identificação do eleitor)
 
 ```bash
@@ -83,18 +95,13 @@ python baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
 for f in dados/teste_arqurna_*.zip; do python baixar_logs.py --zip $f; done
 ```
 
-## Publicar na internet (servidor Windows)
-
-Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md): `python deploy/empacotar.py` gera
-`pacote_servidor.zip` (código + dados processados) e o script
-`deploy/instalar_servico_windows.ps1` instala o painel como serviço do Windows via NSSM.
-
 ## O painel
 
 - **Barra lateral**: escolhe eleição/turno, desce de nível (UF → município → zona → seção) e ajusta o critério de alerta.
 - **Comparar**: média ± desvio padrão de cada subunidade (UFs, municípios, zonas ou locais de votação). Com muitos municípios, vira um gráfico média × desvio padrão onde quem destoa do grupo aparece isolado.
 - **Distribuição**: histograma das seções com linhas de média, ±1 e ±2 desvios.
 - **Funil**: abstenção × tamanho da seção, com limites de ±2 e ±3 desvios esperados para cada tamanho.
+- **Votos × abstenção** (aba inicial): média das % de votos (Lula, Flávio Bolsonaro, outros/nulos) das seções sinalizadas por abstenção baixa comparada com a média de todas as seções do nível escolhido, com tabela por UF/município/zona e diferença em p.p. No nível Brasil, um **mapa por UF** (cor = diferença do candidato escolhido) e um gráfico de barras por estado; **clicar num estado do mapa** abre o detalhe dele (métricas, gráfico e tabela por município). Dois modos de comparação: **seção vs. cidade** (padrão: % da seção menos a média das outras seções do mesmo município, o que elimina diferenças de perfil entre cidades) e **seção vs. nível** (% brutas). No fim da aba, um ranking das seções de menor abstenção que mais destoam da própria cidade (z vs. cidade), para saber onde olhar. Requer `python baixar_votos.py`. O contorno dos estados está em `geo/brasil_ufs.geojson`.
 - **Sinalizadas**: seções que cumprem pelo menos 1, 2 ou os 3 critérios abaixo (escolha na barra lateral), ordenadas pelo número de critérios e pela gravidade; exportável em CSV; clicar numa linha abre o detalhe.
 - **Horário dos votos**: % dos votos em cada hora, hora média por subunidade (média ± desvio), distribuição por seção e lista das seções com mais votos após 17h.
 - **Sem digital**: % de eleitores liberados sem digital hora a hora (separando "sem cadastro" de "liberação manual"), média ± desvio por subunidade, gráfico proporção × tamanho da seção e lista das seções acima do esperado.
