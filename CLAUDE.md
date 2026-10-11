@@ -43,6 +43,14 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy. |
 | `deploy/empacotar.py` | Gera `pacote_servidor.zip` com `web/` (site + dados) no Mac. |
 | `docs/ideias-de-relatorios.md` | Próximos relatórios e dados sugeridos para fiscalização. |
+| `extras.py` | Análises da aba "Mais análises" (a–i de docs/ideias-de-relatorios.md). Só ACRESCENTA colunas; não muda os 3 critérios. Cada fonte é opcional. |
+| `leitura_tse.py` | Leitura de CSV do TSE com detecção flexível de colunas (usado pelos baixar_* novos). |
+| `baixar_votacao.py` | Votação por seção (por candidato) → `dados/votacao_<ano>_t<turno>_<UF>.parquet`. Materialidade e voto concentrado. Confere votos ÷ comparecimento por cargo. |
+| `baixar_perfil.py` | Perfil do eleitorado por seção → `dados/perfil_<ano>_<UF>.parquet` (16–17, 60–69, 70+, biometria). |
+| `baixar_ibge.py` | População Censo 2022 por idade (SIDRA, tabela 9514, a CONFIRMAR) → `dados/populacao_2022.parquet`. |
+| `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (URL do CDN PRESUMIDA). |
+| `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
+| `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (26 conferências). |
 
 `dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
 O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/2026 (está no histórico do git).
@@ -100,17 +108,31 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
 
 ## 7. Estado atual e PRÓXIMO PASSO (onde paramos)
 
-- ✅ Out/2026: frontend refeito como site estático (branch `reformulacao-site`, PR no fork `rntjr/esteleicao`). Testado só com dados sintéticos (`gerar_dados_teste.py`) e com uma base sintética de 470 mil seções para medir desempenho.
-- A fazer no Mac com os dados reais: `python baixar_locais.py` (endereços e coordenadas) e `python gerar_site.py --servir`; conferir as telas com os números reais (validação de 2026: 124,75 mi votos no log; 2,98% após 17h).
-- Publicar: `python deploy/empacotar.py` e, no servidor, `deploy\publicar_site.ps1` (remove o serviço Streamlit e recarrega o Caddy).
-- ❌ Pendente de antes: `https://esteleicao.com` dava `ERR_SSL_PROTOCOL_ERROR` (Caddy sem certificado para o domínio; DNS criado em 11/10/2026). Rodar `.\deploy\diagnosticar_caddy.ps1` como Administrador e ler o erro do ACME no log.
-- Observação: o `Caddyfile.duad` original do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano de cópia); vale avisar o usuário.
+- Out/2026 (sessão na nuvem, branch `claude/magical-goodall-0dehvi`, criada a partir de `reformulacao-site`):
+  ETAPA 2 implementada e testada SÓ com dados sintéticos (o proxy da nuvem bloqueou `cdn.tse.jus.br` e o IBGE):
+  - scripts novos `baixar_votacao.py`, `baixar_perfil.py`, `baixar_ibge.py`, `baixar_transferencia.py`, `baixar_gastos.py`;
+    `baixar_locais.py` passou a ler DS_TIPO_SECAO_AGREGADA / NR_SECAO_PRINCIPAL; `baixar_logs.py --refazer` reaproveita os
+    `logs_brutos` sem acessar o TSE; `logs_urna.metricas` ganhou `intervalos_rapidos`, `maior_seq_rapida`, `seq_rapida_inicio` (exige `--refazer`).
+  - `extras.py` + `gerar_site.enriquecer/relatorio_extras` → `web/dados/extras.json` e `extras/<UF>.json`; colunas opcionais nos arquivos de UF/zona.
+  - site: aba "Mais análises" (a–i), 4º critério opcional "voto concentrado" (bits em `flags_conc`, bit i = nível i), filtros de contexto
+    (tipo de local, idade explica, eleição anterior, transferência, agregadas), detalhe da seção com cartões novos, mapa com novas métricas,
+    plano com rotas (locais ALTA a ≤ 2 km, no município) e fichas imprimíveis por escola.
+  - Regressão: nos parquets sintéticos antigos, 0 diferenças em todos os números já existentes. Teste sintético: 26/26. Navegador: 0 erros de console (desktop, celular, escuro).
+  - Escala: base sintética de 321 mil seções com todas as fontes gerou o site em ~6 min, 220 MB em web/dados (nenhum arquivo > 10 MB). Memória não medida.
+- Limites NOVOS (propostos, ajustáveis, não são metodologia antiga): `extras.CONC` (voto concentrado: z 5/4/3, fatia 50/40/30%, 50/40/30 votos),
+  manual tardio (z ≥ 3,5, ≥ 5 casos, ≥ 2× o esperado pelo horário dos votos da própria seção), sequência rápida ≥ 10 votos com < 30 s,
+  votos antes das 8h ≥ 3, comparecimento entre turnos (z robusto ≥ 4 e +10 p.p.).
+- PRÓXIMO: Etapa 1 com dados reais (validar com AC/RR primeiro), conferir nomes de colunas de CADA arquivo novo do TSE
+  (votação, perfil, transferência e gastos foram PRESUMIDOS), tabela do SIDRA, Etapa 3 (conferência, tamanhos, resumo dos achados)
+  e Etapa 4 (commit em `reformulacao-site`, PR #1 do fork com prints reais, `deploy/publicar_pages.ps1`, Pages em https://rntjr.github.io/esteleicao/).
+- ❌ Pendente de antes: `https://esteleicao.com` dava `ERR_SSL_PROTOCOL_ERROR` (Caddy sem certificado). Rodar `.\deploy\diagnosticar_caddy.ps1`.
+- Observação: o `Caddyfile.duad` do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano).
 
 ## 8. Rotinas
 
 - Atualizar o site: no Mac `python gerar_site.py` e `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `.\esteleicao\deploy\publicar_site.ps1` (como Administrador).
 - 2º turno (25/10/2026): `python baixar_dados.py --turno 2`, `python baixar_logs.py --turno 2` e `python gerar_site.py --ano 2026 --turno 2` no Mac, quando o TSE publicar. O plano de fiscalização do 2º turno deve usar os dados do 1º.
-- Testes sem internet: ver README ("Testar sem baixar nada").
+- Testes sem internet: `python testar_sem_internet.py` (gera, processa todas as fontes e confere os casos plantados).
 
 ## 9. Preferências e cuidados
 

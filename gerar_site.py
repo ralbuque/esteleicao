@@ -14,7 +14,9 @@ Entradas (em dados/):
     secoes_<ano>_t<turno>.parquet        baixar_dados.py   (obrigatório)
     logs_<ano>_t<turno>_<UF>.parquet     baixar_logs.py    (horário e digital)
     locais_<ano>.parquet                 baixar_locais.py  (endereço e coordenadas da escola)
-Saída (em web/dados/): brasil.json, municipios.json, apos17.json, plano.json,
+Opcionais, para a aba "Mais análises" (veja extras.py): votacao_*, perfil_*, populacao_*,
+    secoes_<ano-4>_t1 (eleição anterior), secoes_<ano>_t<outro turno>, transferencia_*, gastos_*.
+Saída (em web/dados/): brasil.json, municipios.json, apos17.json, plano.json, extras.json,
     uf/<UF>.json (seções sinalizadas) e mun/<código>.json (todas as seções do município).
 """
 from __future__ import annotations
@@ -33,7 +35,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from analise import juntar_horario, pontuar_secoes
+import extras
+from analise import corrigir_fuso, juntar_horario, pontuar_secoes
 
 RAIZ = Path(__file__).parent
 DADOS = RAIZ / "dados"
@@ -133,15 +136,25 @@ def escolher_arquivo(ano: int | None, turno: int | None) -> Path:
     return arqs[0]
 
 
+def carregar_logs(ano, turno) -> pd.DataFrame | None:
+    arqs = sorted(DADOS.glob(f"logs_{ano}_t{turno}_*.parquet"))
+    logs = pd.concat([pd.read_parquet(a) for a in arqs], ignore_index=True) if arqs else None
+    if logs is not None:
+        logs = logs[logs["uf"].astype(str) != "ZZ"]
+    return logs
+
+
+def carregar_logs_corrigidos(ano, turno) -> pd.DataFrame | None:
+    logs = carregar_logs(ano, turno)
+    return corrigir_fuso(logs) if logs is not None else None
+
+
 def carregar(caminho: Path) -> tuple[pd.DataFrame, dict]:
     ano, turno = re.match(r"secoes_(\d{4})_t(\d)", caminho.stem).groups()
     sec = pd.read_parquet(caminho)
     sec = sec[sec["uf"].astype(str) != "ZZ"].reset_index(drop=True)  # exterior fica fora do site
     df = pontuar_secoes(sec)
-    arqs = sorted(DADOS.glob(f"logs_{ano}_t{turno}_*.parquet"))
-    logs = pd.concat([pd.read_parquet(a) for a in arqs], ignore_index=True) if arqs else None
-    if logs is not None:
-        logs = logs[logs["uf"].astype(str) != "ZZ"]
+    logs = carregar_logs(ano, turno)
     df = juntar_horario(df, logs)  # já corrige o fuso (analise.corrigir_fuso)
     ufs_log = sorted(logs["uf"].astype(str).unique()) if logs is not None else []
 
@@ -261,6 +274,9 @@ def faixas_brasilia(df: pd.DataFrame, prefixo: str = "h") -> np.ndarray:
 # ------------------------------------------------------------------ agregações
 SOMAS = ["aptos", "comparecimento", "abstencoes", "votos_log", "votos_apos_17", "votos_manual",
          "votos_sem_cadastro", "votos_digital", "com_log", "com_17h"]
+# somas que só existem quando a fonte opcional foi baixada (Mais análises)
+SOMAS_OPC = ["eleitores_perfil", "el_70_mais", "el_16_17", "el_biometria", "transf_recebidos",
+             "votos_antes_8", "manual_16h"]
 
 
 def preparar(df: pd.DataFrame) -> pd.DataFrame:
@@ -276,7 +292,7 @@ def preparar(df: pd.DataFrame) -> pd.DataFrame:
 
 def agregar(df: pd.DataFrame, por: list[str]) -> pd.DataFrame:
     g = df.groupby(por, observed=True, sort=False)
-    a = g[SOMAS].sum(min_count=1)
+    a = g[SOMAS + [c for c in SOMAS_OPC if c in df]].sum(min_count=1)
     a["secoes"] = g.size()
     a["max_17h"] = g["votos_apos_17"].max()
     for nome in NIVEIS:
@@ -288,7 +304,19 @@ def agregar(df: pd.DataFrame, por: list[str]) -> pd.DataFrame:
         a[f"{nome}_mult"] = ((f & 1).astype(bool).astype(int) + (f & 2).astype(bool).astype(int)
                              + (f & 4).astype(bool).astype(int) >= 2).groupby([df[c] for c in por], observed=True).sum()
         a[f"{nome}_v17"] = (df["votos_apos_17"].where(f > 0, 0)).groupby([df[c] for c in por], observed=True).sum()
+        if "flags_conc" in df:
+            i = list(NIVEIS).index(nome)
+            a[f"{nome}_conc"] = extras.bit(df["flags_conc"], i).groupby([df[c] for c in por], observed=True).sum()
     return a.reset_index()
+
+
+def cols_agg(df: pd.DataFrame) -> dict:
+    """Colunas dos arquivos agregados: as de sempre + as das fontes opcionais que existirem."""
+    c = dict(COLS_AGG)
+    c.update({k: 0 for k in SOMAS_OPC if k in df})
+    if "flags_conc" in df:
+        c.update({f"{n}_conc": 0 for n in NIVEIS})
+    return c
 
 
 COLS_AGG = {"secoes": 0, "aptos": 0, "comparecimento": 0, "abstencoes": 0, "com_log": 0, "votos_log": 0,
@@ -329,6 +357,7 @@ def plano(df: pd.DataFrame) -> pd.DataFrame:
     base = esc.agg(secoes_total=("secao", "size"), aptos_total=("aptos", "sum"),
                    nome_local=("nome_local", "first"), endereco=("endereco", "first"),
                    bairro=("bairro", "first"), cep=("cep", "first"), lat=("lat", "first"), lon=("lon", "first"),
+                   tipo_local=("tipo_local", "first"),
                    mun_nome=("mun_nome", "first"), mun_lat=("mun_lat", "first"), mun_lon=("mun_lon", "first"),
                    cd_ibge=("cd_ibge", "first"))
     s = d[d["f_padrao"] > 0]
@@ -368,6 +397,30 @@ COLS_SECAO_MUN = {  # todas as seções de um município
     "dif_local_min": 0, "ultimo_voto": 3, "votos_manual": 0, "cadastrados": 0, "pct_manual_cadastrados": 4,
     "z_manual": 2, "maior_seq_manual": 0, "votos_sem_cadastro": 0, "sinais_cod": None,
 }
+# colunas das fontes opcionais (Mais análises): entram só se existirem
+OPC_LISTA = {
+    "flags_conc": 0, "conc_cargo": 0, "conc_nome": None, "conc_votos": 0, "conc_validos": 0, "conc_fatia": 4,
+    "conc_esperada": 4, "conc_z": 2, "conc_z_bn": 2, "conc_pct_bn": 4, "conc_esp_bn": 4,
+    "perfil_explica": 0, "pct_70": 3, "pct_16_17": 3, "tipo_secao_agregada": None, "n_agregadas": 0,
+    "transf_recebidos": 0, "flags_ant": 0, "tem_ant": 0, "z_abst_ant": 2,
+    "votos_antes_8": 0, "manual_16h": 0, "z_manual_tarde": 2, "maior_seq_rapida": 0, "seq_rapida_inicio": 3,
+    "dif_comp_turnos": 4, "z_comp_turnos": 2, "comp_sobe_turno": 0, "taxa_comp_t1": 4, "taxa_comp_t2": 4,
+    "apos17_so_t2": 0, "manual_tarde_esperado": 1,
+}
+OPC_DETALHE = {
+    **OPC_LISTA, "eleitores_perfil": 0, "el_70_mais": 0, "el_16_17": 0, "el_biometria": 0, "pct_biometria": 3,
+    "abst_esperada_idade": 4, "z_abst_idade": 2, "manual_esperado_idade": 4, "z_manual_idade": 2,
+    "transf_enviados": 0, "pct_transf": 3, "taxa_abst_ant": 4, "aptos_ant": 0, "pct_apos_17_ant": 4,
+    "votos_apos_17_ant": 0, "z_manual_ant": 2, "votos_manual_ant": 0, "z_bn": 2, "pct_bn": 4, "esp_bn": 4,
+    "comparecimento_t1": 0, "comparecimento_t2": 0, "votos_apos_17_t1": 0, "votos_apos_17_t2": 0,
+    "manual_tarde_esperado": 1, "cadastrados_16h": 0, "intervalos_rapidos": 0, "votos_manual_apos_17": 0,
+}
+
+
+def com_opcionais(df: pd.DataFrame, base: dict, opc: dict) -> dict:
+    return {**base, **{k: v for k, v in opc.items() if k in df}}
+
+
 COLS_LOCAL = {"local": 0, "nome_local": None, "endereco": None, "bairro": None, "cep": None,
               "lat": 5, "lon": 5}
 
@@ -384,7 +437,69 @@ def locais_de(d: pd.DataFrame) -> dict:
                   titulo(r.endereco) if isinstance(r.endereco, str) else None,
                   titulo(r.bairro) if isinstance(r.bairro, str) else None,
                   None if pd.isna(r.cep) else str(r.cep),
-                  _num(r.lat, 5), _num(r.lon, 5)]
+                  _num(r.lat, 5), _num(r.lon, 5),
+                  titulo(r.tipo_local) if isinstance(r.tipo_local, str) else None]
+    return out
+
+
+# ------------------------------------------------------------------ Mais análises (extras.py)
+def enriquecer(df: pd.DataFrame, meta: dict) -> tuple[pd.DataFrame, dict]:
+    """Acrescenta às seções as colunas das fontes opcionais. Cada etapa só roda se o arquivo existir."""
+    ano, turno = meta["ano"], meta["turno"]
+    rel = {}
+    df = extras.sinais_extras(df)
+    rel["sinais"] = extras.relatorio_sinais(df)
+    df, rel["perfil"] = extras.perfil(df, DADOS, ano, NIVEIS, lambda d, nome: d[f"f_{nome}"])
+    df, rel["contexto"] = extras.contexto(df, DADOS, ano)
+    df, rel["anterior"] = extras.eleicao_anterior(df, DADOS, ano, marcar, carregar_logs)
+    rel["repeticao"] = extras.resumo_repeticao(df, NIVEIS)
+    df, rel["turnos"] = extras.outro_turno(df, DADOS, ano, turno, carregar_logs_corrigidos)
+    df, vot, conc = extras.votacao(df, DADOS, ano, turno, NIVEIS)
+    if vot:
+        rel["materialidade"] = extras.materialidade(df, vot["materialidade_tot"], ano, NIVEIS)
+        rel["concentracao"] = extras.resumo_concentracao(df, NIVEIS)
+    meta["fontes_extras"] = sorted(k for k, v in rel.items() if v)
+    print(f"  fontes extras: {', '.join(meta['fontes_extras']) or 'nenhuma'}")
+    return df, rel
+
+
+def listas_extras(df: pd.DataFrame, d: pd.DataFrame, CL: dict, faixas: np.ndarray, n: int) -> dict:
+    """Listas de seções de cada análise extra (as n mais fortes de cada uma), para o recorte d."""
+    def lista(mask, ordem, asc=False):
+        x = d[mask.fillna(False).astype(bool)].sort_values(ordem, ascending=asc).head(n).copy()
+        x["horas"] = [" ".join(map(str, r)) for r in faixas[df.index.get_indexer(x.index)]]
+        return {"secoes": tabela(x, {"uf": None, **CL, "horas": None}), "locais": locais_de(x)}
+    out = {}
+    if "conc_z" in d:
+        out["lista_conc"] = lista(extras.bit(d["flags_conc"], 2) > 0, "conc_z")
+    if "perfil_explica" in d:
+        out["lista_perfil"] = lista(d["perfil_explica"] > 0, "z_ajustado", asc=True)
+    if "comp_sobe_turno" in d:
+        out["lista_turnos"] = lista(d["z_comp_turnos"] >= 3, "z_comp_turnos")
+    if "transf_recebidos" in d:
+        out["lista_transf"] = lista(d["transf_recebidos"] >= 20, "transf_recebidos")
+    if "votos_antes_8" in d:
+        out["lista_antes_8"] = lista(d["votos_antes_8"] > 0, "votos_antes_8")
+    if "z_manual_tarde" in d:
+        out["lista_manual_tarde"] = lista(extras.manual_tarde(d), "z_manual_tarde")
+    if "maior_seq_rapida" in d:
+        out["lista_rapidos"] = lista(d["maior_seq_rapida"] >= 6, "maior_seq_rapida")
+    return out
+
+
+def relatorio_extras(df: pd.DataFrame, rel: dict, CL: dict, faixas: np.ndarray) -> dict:
+    """extras.json: resumos e listas (Brasil) de cada análise extra. As listas completas de cada UF
+    ficam em extras/<UF>.json."""
+    out = {k: v for k, v in rel.items() if k not in ("cadastro", "gastos") and v}
+    out["cadastro"], out["gastos"] = rel.get("cadastro") or {}, rel.get("gastos") or {}
+    out.update(listas_extras(df, df, CL, faixas, 300))
+    if "tipo_local" in df and df["tipo_local"].notna().any():
+        t = df.assign(tipo=df["tipo_local"].fillna("Não informado").map(titulo))
+        g = t.groupby("tipo")
+        tl = pd.DataFrame({"secoes": g.size(), "aptos": g["aptos"].sum(),
+                           **{f"{n}_sec": (t[f"f_{n}"] > 0).groupby(t["tipo"]).sum() for n in NIVEIS}})
+        out["tipos_local"] = tabela(tl.reset_index().sort_values("secoes", ascending=False),
+                                    {"tipo": None, "secoes": 0, "aptos": 0, **{f"{n}_sec": 0 for n in NIVEIS}})
     return out
 
 
@@ -401,6 +516,7 @@ def main():
     print(f"Lendo {caminho.name} e logs…")
     df, meta = carregar(caminho)
     df = preparar(marcar(df))
+    df, rel = enriquecer(df, meta)
     faixas = faixas_brasilia(df, "h")
     faixas_sd = faixas_brasilia(df, "s")
     faixas_man = faixas_brasilia(df, "m")
@@ -418,9 +534,15 @@ def main():
     info = df.drop_duplicates("cd_municipio").set_index("cd_municipio")[["cd_ibge", "mun_nome", "mun_lat", "mun_lon"]]
     mun = mun.join(info, on="cd_municipio")
     mun = mun.sort_values(["uf", "mun_nome"]).reset_index(drop=True)
+    mun, rel["cadastro"] = extras.cadastro(mun, DADOS, meta["ano"])
+    mun, rel["gastos"] = extras.gastos(mun, DADOS, meta["ano"])
+    CA = cols_agg(df)
+    opc_mun = {"pop_16_mais": 0, "razao_pop": 4, "aptos_mun_ant": 0, "cresc_eleitorado": 4, "gasto_total": 0,
+               "gasto_eleitor": 3, "gasto_vs_uf": 2, "gasto_transporte": 0, "gasto_combustivel": 0,
+               "gasto_veiculos": 0, "gasto_pessoal": 0}
     tamanhos["municipios.json"] = gravar(saida / "municipios.json", tabela(mun, {
         "cd_municipio": 0, "cd_ibge": None, "uf": None, "mun_nome": None, "mun_lat": 4, "mun_lon": 4,
-        **COLS_AGG}))
+        **CA, **{k: v for k, v in opc_mun.items() if k in mun}}))
 
     # ---- Brasil e UFs
     uf = agregar(df, ["uf"]).sort_values("uf")
@@ -434,8 +556,8 @@ def main():
         "meta": {**meta, "gerado_em": datetime.now().isoformat(timespec="minutes"),
                  "niveis": NIVEIS, "min_aptos_abst": MIN_APTOS_ABST, "min_votos_17": MIN_VOTOS_17,
                  "faixas": FAIXAS},
-        "total": {k: _num(br[k], 0) for k in COLS_AGG},
-        "ufs": tabela(uf, {"uf": None, **COLS_AGG}),
+        "total": {k: _num(br[k], 0) for k in CA},
+        "ufs": tabela(uf, {"uf": None, **CA}),
         "perfil": {"votos": perfil(df, faixas), "sem_digital": perfil(df, faixas_sd),
                    "manual": perfil(df, faixas_man)},
         "perfil_uf": perfis_uf,
@@ -446,14 +568,17 @@ def main():
     tamanhos["brasil.json"] = gravar(saida / "brasil.json", brasil)
 
     # ---- seções sinalizadas por UF (no nível mais amplo; o site filtra pelos outros níveis)
-    cand = df[df["f_amplo"] > 0].copy()
+    # (+ as de voto concentrado no nível amplo, o 4º critério opcional)
+    conc_amplo = extras.bit(df["flags_conc"], 2).astype(bool) if "flags_conc" in df else False
+    cand = df[(df["f_amplo"] > 0) | conc_amplo].copy()
+    CL = com_opcionais(df, COLS_SECAO_LISTA, OPC_LISTA)
     hor = faixas[df.index.get_indexer(cand.index)] if len(cand) else np.zeros((0, len(FAIXAS)))
     cand["horas"] = [" ".join(map(str, r)) for r in hor]
     for u in uf["uf"]:
         g = cand[cand["uf"] == u]
         t17 = top_apos17(df[df["uf"] == u], faixas, df, 300)
-        obj = {"uf": u, "secoes": tabela(g, {**COLS_SECAO_LISTA, "horas": None}),
-               "top17": tabela(t17, {**COLS_SECAO_LISTA, "horas": None}),
+        obj = {"uf": u, "secoes": tabela(g, {**CL, "horas": None}),
+               "top17": tabela(t17, {**CL, "horas": None}),
                "locais": locais_de(pd.concat([g, t17]))}
         tamanhos[f"uf/{u}.json"] = gravar(saida / "uf" / f"{u}.json", obj)
 
@@ -461,39 +586,50 @@ def main():
     if df["votos_apos_17"].notna().any():
         top = top_apos17(df, faixas, df, 1000)
         tamanhos["apos17.json"] = gravar(saida / "apos17.json", {
-            "secoes": tabela(top, {"uf": None, **COLS_SECAO_LISTA, "horas": None}),
+            "secoes": tabela(top, {"uf": None, **CL, "horas": None}),
             "locais": locais_de(top)})
 
     # ---- plano de fiscalização (escolas)
-    esc = plano(df)
-    for c in ["nome_local", "endereco", "bairro"]:
+    esc = extras.rotas(plano(df))
+    for c in ["nome_local", "endereco", "bairro", "tipo_local"]:
         if c in esc:
             esc[c] = esc[c].map(titulo)
+    rel["rotas"] = {"rotas": int(esc["rota"].nunique()) if len(esc) else 0,
+                    "locais": int(esc["rota"].notna().sum()) if len(esc) else 0, "raio_km": extras.RAIO_ROTA_KM}
     tamanhos["plano.json"] = gravar(saida / "plano.json", tabela(esc, {
         "prioridade": 0, "uf": None, "cd_municipio": 0, "mun_nome": None, "zona": 0, "local": 0,
         "nome_local": None, "endereco": None, "bairro": None, "cep": None, "lat": 5, "lon": 5,
         "mun_lat": 4, "mun_lon": 4, "secoes_total": 0, "aptos_total": 0, "sinalizadas": 0,
         "aptos_sinalizadas": 0, "n_abst": 0, "n_17h": 0, "n_man": 0, "multi": 0, "forte": 0,
-        "com_sinal": 0, "v17": 0, "vman": 0, "secoes": None}) if len(esc) else {"cols": [], "rows": []})
+        "com_sinal": 0, "v17": 0, "vman": 0, "secoes": None, "tipo_local": None,
+        "rota": None, "rota_ordem": 0, "rota_km": 2}) if len(esc) else {"cols": [], "rows": []})
+
+    # ---- Mais análises
+    tamanhos["extras.json"] = gravar(saida / "extras.json", relatorio_extras(df, rel, CL, faixas))
+    for u in uf["uf"]:
+        lx = listas_extras(df, df[df["uf"] == u], CL, faixas, 1000)
+        if lx:
+            tamanhos[f"extras/{u}.json"] = gravar(saida / "extras" / f"{u}.json", lx)
 
     # ---- por município: resumo das zonas + perfil de horário;
     #      por zona: todas as seções (assim nenhum arquivo fica grande, nem na capital paulista)
     df["horas"] = [" ".join(map(str, r)) for r in faixas]
     (saida / "zona").mkdir(parents=True)
     zonas = agregar(df, ["cd_municipio", "zona"])
+    CM = com_opcionais(df, COLS_SECAO_MUN, OPC_DETALHE)
     n = 0
     for cd, g in df.groupby("cd_municipio", observed=True, sort=False):
         idx = df.index.get_indexer(g.index)
         z = zonas[zonas["cd_municipio"] == cd].sort_values("zona")
         t17 = top_apos17(g, faixas, df, 100)
         gravar(saida / "mun" / f"{int(cd)}.json", {
-            "cd": int(cd), "zonas": tabela(z, {"zona": 0, **COLS_AGG}),
-            "top17": tabela(t17, {**COLS_SECAO_LISTA, "horas": None}), "locais": locais_de(t17),
+            "cd": int(cd), "zonas": tabela(z, {"zona": 0, **CA}),
+            "top17": tabela(t17, {**CL, "horas": None}), "locais": locais_de(t17),
             "perfil": [int(x) for x in faixas[idx].sum(0)],
             "perfil_sem_digital": [int(x) for x in faixas_sd[idx].sum(0)]})
         for zn, gz in g.groupby("zona", observed=True, sort=False):
             gravar(saida / "zona" / f"{int(cd)}-{int(zn)}.json", {
-                "cd": int(cd), "zona": int(zn), "secoes": tabela(gz, COLS_SECAO_MUN | {"horas": None}),
+                "cd": int(cd), "zona": int(zn), "secoes": tabela(gz, CM | {"horas": None}),
                 "locais": locais_de(gz)})
             n += 1
     print(f"  {df['cd_municipio'].nunique():,} municípios, {n:,} zonas")

@@ -1,5 +1,12 @@
 # Próximos relatórios e dados para orientar a fiscalização
 
+> **Out/2026: todos os itens abaixo foram implementados** na aba "Mais análises"
+> (`extras.py`, `gerar_site.py`, `web/app.js`), testados com dados sintéticos
+> (`python testar_sem_internet.py`). Falta rodar com os dados reais e conferir os
+> nomes das colunas dos arquivos novos do TSE. Exceção: o formulário de ocorrências
+> que volta para o site (item 8) virou campos em branco na ficha impressa; registrar
+> online exige um servidor, e o site é estático.
+
 Ideias para ampliar o site, em ordem de prioridade. Todas usam dados abertos
 (TSE, IBGE) e seguem o mesmo princípio do site: comparar cada seção com as
 vizinhas, mostrar **quantidade** ao lado da porcentagem e tratar destaque como

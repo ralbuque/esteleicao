@@ -17,6 +17,7 @@ interrompido, rode de novo: ele continua de onde parou.
 --conexoes   número de downloads simultâneos (padrão 8; reduza se der muitos erros)
 --completo   baixa o zip inteiro em vez de só os logs (retoma sozinho se cair)
 --zip        processa um zip que você já baixou (pelo navegador, curl etc.)
+--refazer    reprocessa UFs já processadas; usa os logs_brutos já baixados, sem baixar de novo
 Resultado: dados/logs_<ano>_t<turno>_<UF>.parquet  (gerar_site.py lê automaticamente)
 
 Fonte: https://dadosabertos.tse.jus.br/dataset/resultados-2026-arquivos-transmitidos-para-totalizacao
@@ -182,9 +183,14 @@ def main():
         print(f"\n=== {uf} ({ano}, {turno}º turno) ===")
         url = (a.url or URL).format(ano=ano, turno=turno, uf=uf)
         completo = PASTA / f"arqurna_{ano}_{turno}t_{uf}.zip"
+        brutos = PASTA / f"logs_brutos_{ano}_{turno}t_{uf}.zip"
         try:
             if zip_local:
                 caminho = zip_local
+            elif a.refazer and saida.exists() and brutos.exists():
+                # o .parquet só é gravado quando todos os logs vieram: os brutos estão completos
+                print(f"  reprocessando os logs já baixados ({brutos.name}), sem acessar o TSE")
+                caminho = brutos
             elif completo.exists():  # zip inteiro já baixado antes
                 print(f"  usando o zip completo já baixado: {completo.name}")
                 caminho = completo
@@ -192,8 +198,7 @@ def main():
                 caminho = baixar_completo(url, completo)
             else:
                 try:
-                    caminho, n_total, n_falhas = baixar_so_logs(
-                        url, PASTA / f"logs_brutos_{ano}_{turno}t_{uf}.zip", EXT_LOG, a.conexoes)
+                    caminho, n_total, n_falhas = baixar_so_logs(url, brutos, EXT_LOG, a.conexoes)
                 except SemDownloadParcial:
                     print("  servidor não aceitou baixar só os logs; baixando o zip completo")
                     caminho = baixar_completo(url, completo)

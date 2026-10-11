@@ -51,7 +51,16 @@ Para só gerar (antes de publicar): `python gerar_site.py`.
 | `baixar_dados.py` | "Detalhe da apuração por seção eleitoral" | `dados/secoes_<ano>_t<turno>.parquet` |
 | `baixar_logs.py` | logs das urnas, um zip por UF | `dados/logs_<ano>_t<turno>_<UF>.parquet` |
 | `baixar_locais.py` | "Eleitorado por local de votação" (endereço, bairro, CEP, latitude e longitude) | `dados/locais_<ano>.parquet` |
+| `baixar_votacao.py` | "Votação por seção eleitoral" (votos por candidato), um zip por UF | `dados/votacao_<ano>_t<turno>_<UF>.parquet` |
+| `baixar_perfil.py` | "Perfil do eleitorado por seção" (idade, biometria) | `dados/perfil_<ano>_<UF>.parquet` |
+| `baixar_ibge.py` | população do Censo 2022 por idade (IBGE/SIDRA) | `dados/populacao_2022.parquet` |
+| `baixar_transferencia.py` | transferência temporária do eleitorado por seção | `dados/transferencia_<ano>.parquet` |
+| `baixar_gastos.py` | prestação de contas: despesas contratadas dos candidatos | `dados/gastos_<ano>.parquet` |
 | `gerar_site.py` | nada: lê os `.parquet` | `web/dados/` (JSON + versão `.gz`) |
+
+Os cinco do meio alimentam a aba **Mais análises** e são opcionais: sem eles o site
+funciona normalmente, sem aquela parte. Para a repetição entre eleições, baixe também
+`python baixar_dados.py --ano 2022` (e, se der, `python baixar_logs.py --ano 2022`).
 
 Os logs e os locais são opcionais: sem logs, o site mostra só a abstenção
 daquela UF; sem locais, as seções são localizadas pelo município.
@@ -82,6 +91,14 @@ Outras eleições: `python baixar_dados.py --turno 2`, `--ano 2022`, `--zip cami
 (e o mesmo `--ano`/`--turno` em `gerar_site.py`).
 
 ### Testar sem baixar nada
+
+Tudo de uma vez (todas as fontes, inclusive as de "Mais análises", com conferência automática dos casos plantados):
+
+```bash
+python testar_sem_internet.py --servir
+```
+
+Ou passo a passo, só as fontes principais:
 
 Dados inventados, com anomalias plantadas e municípios reais (para o mapa):
 

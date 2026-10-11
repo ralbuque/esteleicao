@@ -25,6 +25,8 @@
   --c-17h-claro: #fae3d6;
   --c-man: #7a4cb0;          /* liberação manual */
   --c-man-claro: #ebe2f6;
+  --c-conc: #8a6a00;         /* voto concentrado (4º critério, opcional) */
+  --c-conc-claro: #f5ecc8;
   --mapa-0: #e3e8e4;
   --mapa-1: #fbe3cc;
   --mapa-2: #f6c08f;
@@ -53,6 +55,8 @@
     --c-17h-claro: #4a2715;
     --c-man: #b593e0;
     --c-man-claro: #33264a;
+    --c-conc: #e0c060;
+    --c-conc-claro: #3d3415;
     --confirma: #5cc48a;
     --mapa-0: #233335;
     --mapa-1: #8a4a1f;
@@ -145,6 +149,7 @@ main { padding-top: 28px; padding-bottom: 48px; outline: none; min-height: 60vh;
 .cor-abst { --cor: var(--c-abst); --cor-claro: var(--c-abst-claro); }
 .cor-17h { --cor: var(--c-17h); --cor-claro: var(--c-17h-claro); }
 .cor-man { --cor: var(--c-man); --cor-claro: var(--c-man-claro); }
+.cor-conc { --cor: var(--c-conc); --cor-claro: var(--c-conc-claro); }
 
 .selo { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 99px; font-size: .8rem; font-weight: 600; background: var(--cor-claro); color: var(--cor); white-space: nowrap; }
 .selo::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--cor); }
@@ -250,6 +255,24 @@ ul.sinais li + li { margin-top: 4px; }
 .checklist { margin: 8px 0 0; padding-left: 20px; }
 .checklist li + li { margin-top: 6px; }
 
+/* mais análises */
+.indice { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 12px 16px; background: var(--superficie); border-radius: var(--raio); box-shadow: var(--sombra); font-size: .95rem; }
+.indice a { text-decoration: none; color: var(--tinta-2); }
+.indice a:hover { color: var(--tinta); text-decoration: underline; }
+.bloco[id^="mais-"] > header { display: block; }
+.bloco[id^="mais-"] > header p { margin-top: 8px; }
+td.cands { min-width: 190px; }
+td.cands .forte, td.cands .sub { display: block; }
+.filtros-contexto { margin-top: -4px; font-size: .92rem; color: var(--tinta-2); }
+.filtros select { font: inherit; font-size: .92rem; padding: 5px 8px; border: 1px solid var(--linha); border-radius: var(--raio); background: var(--superficie); color: var(--tinta); }
+.filtros .sub { color: var(--tinta-3); font-size: .85rem; }
+button.primario { background: var(--tinta); color: var(--papel); border-color: var(--tinta); }
+button:disabled { opacity: .6; cursor: wait; }
+code { font-size: .9em; background: var(--superficie-2); padding: 1px 5px; border-radius: 3px; }
+
+/* fichas do fiscal: só aparecem na impressão */
+#fichas-impressao { display: none; }
+
 /* texto corrido (como ler) */
 .texto { max-width: 72ch; }
 .texto h2 { margin-top: 36px; margin-bottom: 10px; }
@@ -277,7 +300,20 @@ ul.sinais li + li { margin-top: 4px; }
 }
 
 @media print {
-  .topo, .rodape, .filtros, .tabela-rodape button, .gaveta, .acoes { display: none !important; }
+  body.imprimindo-fichas > *:not(#fichas-impressao) { display: none !important; }
+  body.imprimindo-fichas #fichas-impressao { display: block; }
+  .ficha { break-after: page; font-size: 11pt; color: #000; }
+  .ficha:last-child { break-after: auto; }
+  .ficha h2 { font-size: 16pt; margin: 2px 0 4px; }
+  .ficha h3 { font-size: 11.5pt; margin: 12px 0 4px; }
+  .ficha .ficha-topo, .ficha .ficha-rodape { font-size: 9pt; color: #444; }
+  .ficha .ficha-rodape { margin-top: 10px; }
+  .ficha table { border: 1px solid #999; }
+  .ficha th, .ficha td { border: 1px solid #999; padding: 4px 6px; font-size: 9.5pt; color: #000; background: #fff; }
+  .ficha table.anotar td { height: 30px; }
+  .ficha .checklist { margin-top: 2px; }
+  .ficha .checklist li { margin-top: 2px; }
+  .topo, .rodape, .filtros, .tabela-rodape button, .gaveta, .acoes, .indice, #p-nota-fichas { display: none !important; }
   body { background: #fff; color: #000; }
   .tabela-envolta, .grafico, .criterio { box-shadow: none; border: 1px solid #ccc; }
   th { position: static; }

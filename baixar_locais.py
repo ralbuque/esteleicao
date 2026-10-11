@@ -38,6 +38,9 @@ COLUNAS = {
     "local": ["NR_LOCAL_VOTACAO"],
     "nome_local": ["NM_LOCAL_VOTACAO"],
     "tipo_local": ["DS_TIPO_LOCAL"],
+    "tipo_secao_agregada": ["DS_TIPO_SECAO_AGREGADA"],
+    "secao_principal": ["NR_SECAO_PRINCIPAL"],
+    "situacao_localidade": ["DS_SITU_LOCALIDADE"],
     "endereco": ["DS_ENDERECO", "DS_LOCAL_VOTACAO_ENDERECO"],
     "bairro": ["NM_BAIRRO"],
     "cep": ["NR_CEP"],
@@ -68,14 +71,16 @@ def ler(caminho: Path, turno: int) -> pd.DataFrame:
     df = pd.concat(partes, ignore_index=True)
     if "turno" in df and (df["turno"] == str(turno)).any():
         df = df[df["turno"] == str(turno)]
-    for c in ["cd_municipio", "zona", "secao", "local"]:
+    for c in ["cd_municipio", "zona", "secao", "local", "secao_principal"]:
+        if c not in df:
+            continue
         df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int32")
     for c in ["lat", "lon"]:
         if c in df:
             v = pd.to_numeric(df[c].str.replace(",", ".", regex=False), errors="coerce")
             # o TSE usa -1 (ou 0) quando não tem a coordenada
             df[c] = v.where((v.abs() > 0.01) & (v != -1)).astype("float32")
-    for c in ["nome_local", "tipo_local", "endereco", "bairro"]:
+    for c in ["nome_local", "tipo_local", "endereco", "bairro", "tipo_secao_agregada", "situacao_localidade"]:
         if c in df:
             df[c] = df[c].str.strip().str.replace(r"\s+", " ", regex=True)
     df = df.drop(columns=["turno"], errors="ignore")
