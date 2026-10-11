@@ -45,7 +45,7 @@ OBRIGATORIAS = ["valor", "origem", "uf_forn"]
 # palavras (sem acento, minúsculas) no tipo de despesa -> categoria
 CATEGORIAS = [
     ("combustivel", ["combust"]),
-    ("veiculos", ["veicul"]),
+    ("veiculos", ["locacao de veicul"]),
     ("transporte", ["transporte", "deslocamento"]),
     ("pessoal", ["pessoal", "militancia", "mobilizacao"]),
 ]
