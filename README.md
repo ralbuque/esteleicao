@@ -1,17 +1,34 @@
-# Abstenção, horário de votação e identificação do eleitor por seção — Eleições 2026
+# esteleição: seções eleitorais que pedem atenção (Eleições 2026)
 
-Baixa os dados oficiais do TSE de comparecimento/abstenção de **todas as seções
-eleitorais** e os **logs das urnas** (horário de cada voto e se o eleitor foi
-identificado pela digital), e abre um painel
-interativo (estilo BI) com média e desvio padrão por Brasil → estado →
-município → zona → seção. Sinaliza seções com abstenção fora do padrão, votação
-concentrada no fim do dia, muitos eleitores liberados sem digital e,
-principalmente, essas coisas acontecendo juntas.
+Usa os dados abertos do TSE de **todas as seções eleitorais** (comparecimento e
+abstenção), os **logs das urnas** (horário de cada voto e se o eleitor foi
+identificado pela digital) e o **cadastro de locais de votação** (endereço e
+coordenadas da escola) para mostrar, num site leve e estático:
+
+- quantas pessoas votaram **depois das 17h**, sempre em quantidade e porcentagem,
+  do Brasil até a seção;
+- as seções com abstenção fora do padrão, votação concentrada depois das 17h e
+  muitos eleitores liberados pelo mesário sem digital, e principalmente essas
+  coisas acontecendo juntas;
+- um **mapa por município** com as seções em atenção e os locais de votação;
+- um **plano de fiscalização**: a lista de escolas por prioridade, com endereço,
+  seções a observar e quantos fiscais alocar.
+
+## Como funciona
+
+```
+dados do TSE ──> baixar_*.py ──> dados/*.parquet ──> gerar_site.py ──> web/dados/*.json ──> navegador
+                 (no Mac)                            (uma vez, ~1 min)     (Caddy só entrega arquivos)
+```
+
+Todo o cálculo (z-scores, cruzamentos, agregações por município, zona e escola)
+é feito **uma vez** em `gerar_site.py`. O site em `web/` é HTML + JavaScript
+puro e lê arquivos JSON prontos e compactados, divididos para que cada tela
+baixe só o necessário. Nada é processado quando alguém abre a página.
 
 ## Como usar
 
-Requer Python 3.9+. No macOS o comando é `python3` (se não existir, o sistema
-oferece instalar as "Command Line Tools"; aceite).
+Requer Python 3.9+. No macOS o comando é `python3`.
 
 Na primeira vez, dentro da pasta do projeto:
 
@@ -21,10 +38,23 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 python baixar_dados.py
-streamlit run painel.py
+python baixar_logs.py
+python baixar_locais.py
+python gerar_site.py --servir
 ```
 
-Nas próximas vezes, basta `source .venv/bin/activate` e `streamlit run painel.py`.
+`gerar_site.py --servir` gera os dados do site e abre em <http://localhost:8000>.
+Para só gerar (antes de publicar): `python gerar_site.py`.
+
+| Script | O que baixa | Resultado |
+|---|---|---|
+| `baixar_dados.py` | "Detalhe da apuração por seção eleitoral" | `dados/secoes_<ano>_t<turno>.parquet` |
+| `baixar_logs.py` | logs das urnas, um zip por UF | `dados/logs_<ano>_t<turno>_<UF>.parquet` |
+| `baixar_locais.py` | "Eleitorado por local de votação" (endereço, bairro, CEP, latitude e longitude) | `dados/locais_<ano>.parquet` |
+| `gerar_site.py` | nada: lê os `.parquet` | `web/dados/` (JSON + versão `.gz`) |
+
+Os logs e os locais são opcionais: sem logs, o site mostra só a abstenção
+daquela UF; sem locais, as seções são localizadas pelo município.
 
 ### Logs de urna (horário dos votos e identificação do eleitor)
 
@@ -40,72 +70,52 @@ UF**, com boletins, RDV, assinaturas e logs de cada seção: de centenas de MB
 por padrão, **baixa só os logs** de dentro do zip (cerca de metade do
 tamanho), lendo o índice do zip e buscando cada log separadamente
 (download parcial / HTTP Range), em 8 conexões simultâneas e com novas
-tentativas automáticas. Os logs vão para `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`.
-**Se cair ou você interromper (Ctrl+C), rode o mesmo comando de novo**: ele
-baixa só o que falta.
+tentativas automáticas. **Se cair ou você interromper (Ctrl+C), rode o mesmo
+comando de novo**: ele baixa só o que falta.
 
-Opções:
+Opções: `--conexoes 4` (menos downloads simultâneos), `--completo` (baixa o zip
+inteiro, retomando a cada queda) e `--zip arquivo.zip` (processa um zip baixado
+por conta própria, por exemplo com
+`curl -L -C - --retry 50 --retry-all-errors -O <url>`).
 
-- `--conexoes 4`: menos downloads simultâneos (use se aparecerem muitos erros).
-- `--completo`: baixa o zip inteiro, retomando sozinho a cada queda (plano B).
-  Também é usado automaticamente se o servidor não aceitar download parcial.
-- `--zip arquivo.zip`: processa um zip que você baixou por conta própria.
+Outras eleições: `python baixar_dados.py --turno 2`, `--ano 2022`, `--zip caminho.zip`
+(e o mesmo `--ano`/`--turno` em `gerar_site.py`).
 
-Para baixar por conta própria (navegador ou `curl`, que também retoma de onde
-parou com `-C -`), mantenha o nome original do arquivo e depois use `--zip`:
+### Testar sem baixar nada
 
-```bash
-curl -L -C - --retry 50 --retry-all-errors -O https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
-python baixar_logs.py --zip bu_imgbu_logjez_rdv_vscmr_2026_1t_CE.zip
-```
-
-O processamento lê ~800 logs/s por núcleo de CPU. O painel junta os logs
-automaticamente quando o arquivo `dados/logs_2026_t1_<UF>.parquet` existe. Fonte:
-<https://dadosabertos.tse.jus.br/dataset/resultados-2026-arquivos-transmitidos-para-totalizacao>
-
-Outras opções:
-
-```bash
-python baixar_dados.py --turno 2
-python baixar_dados.py --ano 2022
-python baixar_dados.py --zip caminho/do/arquivo.zip
-```
-
-Se o download falhar, baixe manualmente o arquivo **"Detalhe da apuração por
-seção eleitoral"** em <https://dadosabertos.tse.jus.br/dataset/resultados-2026>
-e use `--zip`.
-
-Para testar sem baixar nada (dados inventados, com anomalias plantadas):
+Dados inventados, com anomalias plantadas e municípios reais (para o mapa):
 
 ```bash
 python gerar_dados_teste.py
 python baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
 for f in dados/teste_arqurna_*.zip; do python baixar_logs.py --zip $f; done
+python baixar_locais.py --ano 1999 --zip dados/teste_eleitorado_local_votacao.zip
+python gerar_site.py --ano 1999 --servir
 ```
 
 ## Publicar na internet (servidor Windows)
 
-Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md): `python deploy/empacotar.py` gera
-`pacote_servidor.zip` (código + dados processados) e o script
-`deploy/instalar_servico_windows.ps1` instala o painel como serviço do Windows via NSSM.
+Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md). Resumo: no Mac,
+`python gerar_site.py` e `python deploy/empacotar.py`; no servidor, extrair o
+`pacote_servidor.zip` e rodar `deploy\publicar_site.ps1`. O Caddy serve a pasta
+`web\` direto (`deploy/Caddyfile.est`), sem Python no servidor.
 
-## O painel
+## O site
 
-- **Barra lateral**: escolhe eleição/turno, desce de nível (UF → município → zona → seção) e ajusta o critério de alerta.
-- **Comparar**: média ± desvio padrão de cada subunidade (UFs, municípios, zonas ou locais de votação). Com muitos municípios, vira um gráfico média × desvio padrão onde quem destoa do grupo aparece isolado.
-- **Distribuição**: histograma das seções com linhas de média, ±1 e ±2 desvios.
-- **Funil**: abstenção × tamanho da seção, com limites de ±2 e ±3 desvios esperados para cada tamanho.
-- **Sinalizadas**: seções que cumprem pelo menos 1, 2 ou os 3 critérios abaixo (escolha na barra lateral), ordenadas pelo número de critérios e pela gravidade; exportável em CSV; clicar numa linha abre o detalhe.
-- **Horário dos votos**: % dos votos em cada hora, hora média por subunidade (média ± desvio), distribuição por seção e lista das seções com mais votos após 17h.
-- **Sem digital**: % de eleitores liberados sem digital hora a hora (separando "sem cadastro" de "liberação manual"), média ± desvio por subunidade, gráfico proporção × tamanho da seção e lista das seções acima do esperado.
-- **Cruzamento**: escolha na barra lateral quais critérios precisam valer ao mesmo tempo (abstenção baixa, votação tardia, muitos sem digital, liberação manual alta). Cada seção vira um ponto; as que passam em todos os critérios ficam destacadas e listadas com os sinais encontrados no log.
-- **Detalhe da seção**: seção vs zona, município, UF e Brasil; percentis; abstenções esperadas; perfil hora a hora comparado com as outras seções da mesma escola e com o município; e as outras seções do **mesmo local de votação**.
+- **Recorte** (barra abaixo das abas): Brasil → estado → município → zona. Vale para todas as telas e fica no endereço da página, então dá para compartilhar o link.
+- **Rigor**: rigoroso, padrão ou amplo (muda os limites dos três critérios).
+- **Panorama**: resumo em uma frase, números principais, os três critérios, votos por hora e a tabela do nível abaixo (estados, municípios, zonas ou seções).
+- **Mapa**: municípios pintados por seções em atenção, votos após 17h (quantidade ou %), abstenção baixa ou liberação manual. Num estado, mostra também os locais de votação em atenção (pelas coordenadas do TSE). Clicar num município lista as seções e os endereços.
+- **Votos após 17h**: quantidade e % por estado, município e zona; seções por faixa de quantidade; as seções com mais votos depois das 17h, com o horário do último voto e a comparação com as outras seções da mesma escola.
+- **Seções em atenção**: lista filtrável (critério, 2+ critérios, busca por escola/bairro/seção), exportável em CSV.
+- **Plano de fiscalização**: locais de votação por prioridade (alta, média, baixa), com endereço, link para o mapa, seções a observar, eleitores, motivos e fiscais sugeridos; checklist do que observar em cada critério; imprimível e exportável.
+- **Detalhe da seção**: cada critério explicado em frases com os números, sinais do log, votos por hora comparados com o município, as outras seções da mesma escola e como verificar.
 
 ## Como uma seção é sinalizada
 
-A aba **Sinalizadas** procura só três padrões (abstenção ALTA não é sinalizada):
+A aba **Seções em atenção** procura só três padrões (abstenção ALTA não é sinalizada). O seletor **Rigor** no alto do site escolhe entre três níveis; a tabela mostra o padrão:
 
-| Critério | Regra padrão (ajustável na barra lateral) |
+| Critério | Regra padrão (rigor padrão) |
 |---|---|
 | 🔻 Abstenção baixa | z da abstenção ≤ −3 (abaixo do esperado para o município) e ≥ 50 aptos |
 | ⏰ Voto após 17h | ≥ 15% dos votos depois das 17h, com pelo menos 10 votos; por padrão só conta se a hora média da seção for 30+ min mais tarde que a das outras seções da mesma escola (escola inteira tarde = fila) |
@@ -136,7 +146,7 @@ ignoradas.
 país, mas a urna marca a hora local (no AM/MT/MS/RO/RR abre às 7h locais; no
 AC, às 6h). O fuso de cada seção é estimado pela hora em que a urna ficou
 pronta para o primeiro eleitor e harmonizado pelo fuso mais comum do
-município. Todos os horários do painel estão em horário de Brasília.
+município. Todos os horários do site estão em horário de Brasília.
 
 | Métrica | O que é |
 |---|---|
@@ -205,7 +215,7 @@ Abstenção é o número de eleitores que **não** foram votar; ela é registrad
 pela urna a partir dos eleitores habilitados pelos mesários. Por isso, um caminho
 mais informativo para investigar um ponto sinalizado é:
 
-1. Ver as **outras seções do mesmo local de votação** (aba de detalhe) — se a
+1. Ver as **outras seções do mesmo local de votação** (detalhe da seção) — se a
    escola inteira destoa, é perfil da região; se só uma seção destoa, vale olhar mais.
 2. Comparar com **2022** (`--ano 2022`): uma seção que é atípica em todas as
    eleições quase sempre tem causa estrutural.

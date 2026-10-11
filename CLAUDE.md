@@ -13,7 +13,7 @@ Painel web (estilo BI) com dados abertos do TSE das **Eleições Gerais 2026
 atípico** que possam (eventualmente) indicar irregularidade. Navegação
 Brasil → UF → município → zona → seção.
 
-O usuário quer focar em três padrões (aba "🚩 Sinalizadas"):
+O usuário quer focar em três padrões (aba "Seções em atenção"):
 
 1. **Abstenção BAIXA** (abstenção alta não interessa).
 2. **Voto após 17h significativo.**
@@ -21,8 +21,8 @@ O usuário quer focar em três padrões (aba "🚩 Sinalizadas"):
 
 Postura combinada com o usuário: sinalização estatística **não é prova de
 fraude**; a maioria dos casos tem explicação comum (fila, perfil do eleitorado,
-cadastro biométrico, leitor com defeito). O painel público tem um aviso no topo
-e uma seção "Como ler este painel". Manter esse tom.
+cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
+"Como ler" e em cada tela. Manter esse tom.
 
 ## 2. Arquivos
 
@@ -30,18 +30,22 @@ e uma seção "Como ler este painel". Manter esse tom.
 |---|---|
 | `baixar_dados.py` | Baixa "Detalhe da apuração por seção eleitoral" (CDN do TSE) → `dados/secoes_<ano>_t<turno>.parquet` (aptos, comparecimento, abstenção por seção). |
 | `baixar_logs.py` | Baixa os logs das urnas por UF e gera `dados/logs_<ano>_t<turno>_<UF>.parquet` (métricas por seção). |
+| `baixar_locais.py` | Baixa "Eleitorado por local de votação" → `dados/locais_<ano>.parquet` (nome da escola, endereço, bairro, CEP, lat/lon por seção). |
 | `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
 | `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
 | `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
-| `painel.py` | Painel Streamlit. |
-| `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
-| `deploy/instalar_servico_windows.ps1` | Cria `.venv`, instala requirements, registra o serviço `esteleicao` no NSSM. |
-| `deploy/Caddyfile.est` | Bloco do Caddy para `esteleicao.com` → `127.0.0.1:8503`. |
-| `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy (acha serviço, valida config, reinicia, lê log, testa). |
-| `deploy/empacotar.py` | Gera `pacote_servidor.zip` (código + `dados/*.parquet`) no Mac. |
-| `deploy/LEIAME_WINDOWS.md` | Passo a passo de publicação no Windows. |
+| `gerar_site.py` | Roda toda a análise UMA vez e grava `web/dados/*.json` (+ `.gz`): `brasil.json`, `municipios.json`, `apos17.json`, `plano.json`, `uf/<UF>.json`, `mun/<cd>.json`, `zona/<cd>-<zona>.json`. `--servir` abre em localhost:8000. |
+| `web/` | Site estático (HTML + `app.js` + `estilo.css`, sem build). `vendor/` (d3-geo, d3-array, topojson-client), `fontes/` (Archivo), `mapa/brasil.topo.json` (5.564 municípios simplificados, id = código IBGE). |
+| `referencia/municipios.csv` | Código TSE ↔ código IBGE, nome, lat/lon do centro de cada município (fontes: betafcc/Municipios-Brasileiros-TSE e kelvins/municipios-brasileiros). |
+| `gerar_dados_teste.py` | Dados sintéticos com anomalias plantadas (ano 1999), municípios reais e arquivo de locais de votação. |
+| `deploy/Caddyfile.est` | Bloco do Caddy: `esteleicao.com` → `file_server` da pasta `C:/git/esteleicao/web` (precompressed gzip, cache). |
+| `deploy/publicar_site.ps1` | Extrai o pacote, remove o serviço NSSM antigo do Streamlit, valida e recarrega o Caddy. |
+| `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy. |
+| `deploy/empacotar.py` | Gera `pacote_servidor.zip` com `web/` (site + dados) no Mac. |
+| `docs/ideias-de-relatorios.md` | Próximos relatórios e dados sugeridos para fiscalização. |
 
-`dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
+`dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
+O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/2026 (está no histórico do git).
 
 ## 3. Fontes de dados (TSE)
 
@@ -66,68 +70,47 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 ## 4. Métodos estatísticos (decisões)
 
-- **z ajustado da abstenção** (padrão): `(taxa − esperada) / sqrt(p(1−p)/aptos + τ²)`; esperada = taxa do próprio município sem a seção (leave-one-out), UF se o município tem < 5 seções; τ² = variação natural entre seções, estimada por UF de forma robusta (mediana/MAD). Também existem z simples e z binomial (opções no painel).
+- **z ajustado da abstenção** (padrão): `(taxa − esperada) / sqrt(p(1−p)/aptos + τ²)`; esperada = taxa do próprio município sem a seção (leave-one-out), UF se o município tem < 5 seções; τ² = variação natural entre seções, estimada por UF de forma robusta (mediana/MAD). Também existem z simples e z binomial (em `analise.py`; o site usa o ajustado).
 - Mesmo método (`analise.z_proporcao`) para: % sem digital, % liberação manual (denominador = eleitores com digital cadastrada), % após 17h.
 - **Horário**: tudo em horário de Brasília (8h–17h). A urna marca hora local. Fuso por seção = fuso oficial da UF (`FUSO_OFICIAL` em `logs_urna.py`: AC −2; AM, MT, MS, RO, RR −1; resto 0), trocado só se a abertura destoar > 45 min (casos reais: oeste do AM −2, Fernando de Noronha +1, leste do MT usa horário de Brasília = 0). Harmonizado pelo fuso mais comum do município. `analise.corrigir_fuso` reaplica a regra em parquets antigos usando os histogramas por hora (`h00..h23`, `s00..` sem digital, `m00..` manual), com resultado idêntico ao reprocessamento.
 - Achado: Guaporema, Nova Olímpia e Tapira (PR, 40 seções) têm a curva de votos ~40 min adiantada → relógio das urnas adiantado; aparecem com "abertura atrasada" e % após 17h inflado. Não é indício de fraude.
-- **Sinalizadas** (aba 🚩): critérios independentes, a seção mostra quantos cumpre (1, 2 ou 3, escolha na barra lateral):
+- **Seções em atenção**: critérios independentes, a seção mostra quantos cumpre (rigor padrão abaixo; rigoroso/amplo em `gerar_site.NIVEIS`):
   - abstenção baixa: z ≤ −limite (padrão 3) e ≥ 50 aptos;
   - voto após 17h: ≥ 15% dos votos após 17h e ≥ 10 votos; por padrão só conta se a hora média da seção for 30+ min mais tarde que as outras seções da mesma escola (escola inteira tarde = fila);
   - liberação manual: z_manual ≥ limite e ≥ 5 casos.
-- **Cruzamento** (aba 🔀): score = min dos z dos critérios escolhidos na barra lateral.
+- **Plano de fiscalização** (por local de votação, rigor padrão): ALTA = alguma seção com 2+ critérios, 3+ seções em atenção no local ou desvio muito forte (abst z ≤ −5, manual z ≥ 5, ou ≥30% e ≥30 votos após 17h); MÉDIA = 2 seções ou sinal no log (urna ociosa, maioria sem biometria após 17h, sequência manual, ritmo rápido); BAIXA = 1 seção. Fiscais sugeridos = 1 por local + 1 a cada 4 seções.
 - "sinais" por seção (texto): ≥10% após 17h; urna ociosa ≥20 min antes das 17h mas votos depois; maioria sem biometria após 17h; ritmo muito rápido após 17h; 1h+ mais tarde que a escola; sem digital/manual muito acima do município; 8+ liberações manuais seguidas; log ≠ comparecimento; urna substituída; abertura atrasada.
 
-## 5. Painel: desempenho (importante para produção)
+## 5. Site: desempenho e decisões
 
-A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já otimizado:
-
-- `st.cache_resource` (uma cópia compartilhada, não `cache_data`), com `assinatura` (nomes+datas dos arquivos) e `incluir_zz` no cache; base consolidada com `.copy()` (evita fragmentação) e tipos compactos (float32, inteiros menores, category).
-- Nada de filtros que copiem a base inteira por visitante (`com_log` devolve a própria base se ≥ 90% das seções têm log; `filtrar` com subconjunto de colunas).
-- Histogramas calculados no servidor (`histograma()`), dispersões com amostra de 15 mil pontos de fundo + todos os destacados.
-- Medido com dados reais: ~0,9 GB com 1 visitante, ~1,4 GB com 5 simultâneos, ~2,9 GB com 10. Antes das otimizações, o servidor caía com 5.
-- Correlação de Spearman feita com `rank().corr()` (scipy não está no requirements).
+- Antes (Streamlit): cada visita rodava o script inteiro sobre ~500 mil seções; medido com base sintética de 470 mil seções: 18,5 s na primeira visita, ~10 s nas seguintes, ~730 MB de RAM no servidor após 3 visitas.
+- Agora: site estático. Mesma base: 0,2 s para abrir o Panorama (123 KB transferidos, 90 KB são a fonte), 0,7 s o mapa; em 4G simulado (9 Mbps, 150 ms) 0,7 s e 2 s. Servidor: só o Caddy (~50 MB).
+- Arquivos divididos para cada tela baixar só o necessário: municípios num arquivo; seções sinalizadas (no rigor amplo; o site filtra os outros níveis) por UF; todas as seções por zona (nenhum arquivo fica grande, nem a capital paulista).
+- Critérios em bits por seção (`flags`): bits 0-2 rigoroso, 3-5 padrão, 6-8 amplo (abst=1, 17h=2, manual=4). Níveis em `gerar_site.NIVEIS`.
+- Sempre mostrar QUANTIDADE ao lado da porcentagem (pedido do usuário: a % sozinha assusta).
+- Visual: cores da urna (laranja do CORRIGE = atenção; verde do CONFIRMA), fonte Archivo; textos em português simples, sem jargão (z aparece só como "intensidade" no detalhe).
 
 ## 6. Publicação (servidor Windows)
 
 - Servidor Windows, IP público **72.167.48.234**, repositório em **`C:\git\esteleicao`**.
-- Já existem outros sites: o **Caddy** roda como serviço do **NSSM** com o Caddyfile principal em `C:\Git\veracibot\deploy\windows\Caddyfile` (importa blocos por site, ex.: `import C:/Git/duadlive/deploy/Caddyfile.duad` para o site estático duad.live).
-- Arquitetura desejada pelo usuário: **porta padrão (80/443) pelo Caddy**, sem abrir porta nova:
-  `navegador → Caddy (esteleicao.com, HTTPS automático) → 127.0.0.1:8503 (serviço NSSM "esteleicao", Streamlit)`.
-  O Caddy não executa Python, então o painel precisa do próprio serviço NSSM (só interno).
-- Serviço do painel: `deploy\instalar_servico_windows.ps1` (padrão `-Porta 8503 -Endereco 127.0.0.1`). Comando registrado:
-  `.venv\Scripts\python.exe -m streamlit run painel.py --server.port 8503 --server.address 127.0.0.1 --server.headless true --server.fileWatcherType none --server.runOnSave false --browser.gatherUsageStats false --client.toolbarMode viewer`; log em `logs\servico.log`.
-- **Não usar o `python` global** no servidor (não tem pandas): sempre `C:\git\esteleicao\.venv\Scripts\python.exe`.
-- Dados: o servidor **não baixa nada do TSE**; usa os `.parquet` gerados no Mac (`deploy/empacotar.py` → `pacote_servidor.zip`, enviado ao servidor). A pasta `dados` não vai pelo git.
-- WebSocket: o Streamlit 1.65 só aceita WebSocket se Origin == Host (ou `server.corsAllowedOrigins`). O Caddy repassa o Host original, então funciona sem configuração extra (testado: Origin do próprio domínio → 101; outro domínio → 403). Se um dia houver proxy que reescreva o Host, use `-Dominio https://esteleicao.com` no instalador.
-- `Caddyfile.est` atual:
-  ```
-  esteleicao.com {
-  	encode gzip
-  	reverse_proxy 127.0.0.1:8503
-  }
-  www.esteleicao.com {
-  	redir https://esteleicao.com{uri} permanent
-  }
-  ```
-  Validado com `caddy validate`; testado com Caddy 2.8 + navegador na frente do Streamlit.
+- O **Caddy** roda como serviço do **NSSM** com o Caddyfile principal em `C:\Git\veracibot\deploy\windows\Caddyfile`, que importa `C:/git/esteleicao/deploy/Caddyfile.est`.
+- Arquitetura: `navegador → Caddy (esteleicao.com, HTTPS automático) → arquivos de C:\git\esteleicao\web`. Sem Python no servidor; o serviço NSSM "esteleicao" (Streamlit) é removido por `publicar_site.ps1`.
+- Dados: gerados no Mac (`gerar_site.py`), empacotados (`deploy/empacotar.py`) e extraídos no servidor (`deploy/publicar_site.ps1`).
+- Cache: `brasil.json` sem cache (traz `gerado_em`); demais dados pedidos com `?v=<gerado_em>` e cache de 1 dia; vendor/fontes/mapa 7 dias; HTML/JS/CSS `no-cache`.
 
 ## 7. Estado atual e PRÓXIMO PASSO (onde paramos)
 
-- ✅ Painel rodando no servidor em `http://localhost:8503` (confirmado pelo usuário).
-- ❌ `https://esteleicao.com` dá **`ERR_SSL_PROTOCOL_ERROR`** no navegador = o Caddy aceita a conexão TLS mas não tem certificado para o domínio.
-- Verificado de fora: DNS correto (`esteleicao.com` A → 72.167.48.234; `www` CNAME → esteleicao.com); o mesmo IP do duad.live; sem registro CAA; o SOA do DNS (serial 2026101101) indica que o registro foi criado/alterado **hoje (11/10/2026)**.
-- Hipótese principal: o Caddy tentou emitir o certificado antes de o DNS propagar, falhou e entrou em espera crescente entre tentativas. Outras possibilidades: o `import` do `Caddyfile.est` não está no Caddyfile principal (ou está dentro de outro bloco), o caminho do import está errado, ou o Caddy não foi reiniciado.
-- **A fazer no servidor:**
-  1. Rodar `.\deploy\diagnosticar_caddy.ps1` (PowerShell como Administrador). Ele acha o serviço do Caddy no NSSM, confere o import, valida a configuração, reinicia o Caddy, mostra as linhas do log sobre `esteleicao.com` e testa `https://esteleicao.com` localmente.
-  2. Ler o erro do ACME no log do Caddy (NXDOMAIN, timeout nas portas 80/443, rate limit...) e corrigir.
-  3. Confirmar que `https://esteleicao.com` abre o painel e que o WebSocket conecta (sem "Connecting..." na página).
+- ✅ Out/2026: frontend refeito como site estático (branch `reformulacao-site`, PR no fork `rntjr/esteleicao`). Testado só com dados sintéticos (`gerar_dados_teste.py`) e com uma base sintética de 470 mil seções para medir desempenho.
+- A fazer no Mac com os dados reais: `python baixar_locais.py` (endereços e coordenadas) e `python gerar_site.py --servir`; conferir as telas com os números reais (validação de 2026: 124,75 mi votos no log; 2,98% após 17h).
+- Publicar: `python deploy/empacotar.py` e, no servidor, `deploy\publicar_site.ps1` (remove o serviço Streamlit e recarrega o Caddy).
+- ❌ Pendente de antes: `https://esteleicao.com` dava `ERR_SSL_PROTOCOL_ERROR` (Caddy sem certificado para o domínio; DNS criado em 11/10/2026). Rodar `.\deploy\diagnosticar_caddy.ps1` como Administrador e ler o erro do ACME no log.
 - Observação: o `Caddyfile.duad` original do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano de cópia); vale avisar o usuário.
 
 ## 8. Rotinas
 
-- Atualizar dados/código no servidor: no Mac `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`; `nssm restart esteleicao`.
-- 2º turno (25/10/2026): `python baixar_dados.py --turno 2` e `python baixar_logs.py --turno 2` no Mac, quando o TSE publicar.
-- Testes sem internet: `python gerar_dados_teste.py`, depois `baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip` e `baixar_logs.py --zip` para cada `dados/teste_arqurna_*.zip`.
+- Atualizar o site: no Mac `python gerar_site.py` e `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `.\esteleicao\deploy\publicar_site.ps1` (como Administrador).
+- 2º turno (25/10/2026): `python baixar_dados.py --turno 2`, `python baixar_logs.py --turno 2` e `python gerar_site.py --ano 2026 --turno 2` no Mac, quando o TSE publicar. O plano de fiscalização do 2º turno deve usar os dados do 1º.
+- Testes sem internet: ver README ("Testar sem baixar nada").
 
 ## 9. Preferências e cuidados
 

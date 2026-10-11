@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>esteleição · seções eleitorais que pedem atenção</title>
+<meta name="description" content="Dados abertos do TSE, seção por seção: votos depois das 17h, abstenção fora do padrão e liberação de eleitores sem digital. Mapa por município e lista de escolas para fiscalização.">
+<link rel="preload" href="fontes/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="estilo.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='6' width='26' height='20' rx='3' fill='%2317282a'/%3E%3Crect x='17' y='17' width='9' height='5' rx='1' fill='%23d9661f'/%3E%3Crect x='6' y='9' width='9' height='6' rx='1' fill='%23f2f4f1'/%3E%3C/svg%3E">
+<script type="module" src="app.js"></script>
+</head>
+<body>
+<a class="pular" href="#conteudo">Pular para o conteúdo</a>
+<header class="topo">
+  <div class="topo-linha">
+    <a class="marca" href="#/panorama" aria-label="esteleição, página inicial">
+      <svg class="marca-icone" viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="6" width="26" height="20" rx="3"/><rect class="tecla" x="17" y="17" width="9" height="5" rx="1"/><rect class="visor" x="6" y="9" width="9" height="6" rx="1"/></svg>
+      <span>esteleição</span>
+    </a>
+    <p class="eleicao" id="eleicao">Carregando…</p>
+    <label class="rigor">
+      <span>Rigor</span>
+      <select id="nivel" aria-describedby="rigor-ajuda">
+        <option value="rigoroso">Rigoroso: só os casos mais fortes</option>
+        <option value="padrao" selected>Padrão</option>
+        <option value="amplo">Amplo: inclui casos mais leves</option>
+      </select>
+    </label>
+  </div>
+  <nav class="abas" aria-label="Seções do site">
+    <a href="#/panorama" data-tela="panorama">Panorama</a>
+    <a href="#/mapa" data-tela="mapa">Mapa</a>
+    <a href="#/apos17" data-tela="apos17">Votos após 17h</a>
+    <a href="#/atencao" data-tela="atencao">Seções em atenção</a>
+    <a href="#/plano" data-tela="plano">Plano de fiscalização</a>
+    <a href="#/como-ler" data-tela="como-ler">Como ler</a>
+  </nav>
+  <div class="escopo" id="escopo" aria-label="Recorte geográfico"></div>
+</header>
+<main id="conteudo" tabindex="-1">
+  <div class="carregando">Carregando os dados…</div>
+</main>
+<aside class="gaveta" id="gaveta" aria-hidden="true" aria-labelledby="gaveta-titulo">
+  <div class="gaveta-fundo" data-fechar></div>
+  <div class="gaveta-painel" role="dialog" aria-modal="true">
+    <button class="gaveta-fechar" data-fechar aria-label="Fechar">×</button>
+    <div id="gaveta-corpo"></div>
+  </div>
+</aside>
+<div class="dica" id="dica" role="tooltip" hidden></div>
+<footer class="rodape">
+  <p>Fonte: dados abertos do Tribunal Superior Eleitoral (resultados por seção, logs das urnas e eleitorado por local de votação). Um destaque estatístico <strong>não é prova de irregularidade</strong>: a maioria dos casos tem explicação comum. Veja <a href="#/como-ler">Como ler</a>.</p>
+  <p id="gerado"></p>
+</footer>
+</body>
+</html>

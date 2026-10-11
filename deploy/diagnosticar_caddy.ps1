@@ -11,14 +11,14 @@
       1. acha o servico do Caddy no NSSM, o caddy.exe e o Caddyfile principal
       2. confere se o Caddyfile principal importa deploy\Caddyfile.est
       3. valida a configuracao do Caddy
-      4. confere se o painel responde em 127.0.0.1:8503
+      4. confere se os arquivos do site (web\) estao no lugar
       5. reinicia o Caddy (forca nova tentativa de emitir o certificado)
       6. mostra o que o log do Caddy diz sobre o dominio
       7. testa o HTTPS localmente
 #>
 param(
     [string]$Dominio = "esteleicao.com",
-    [int]$PortaPainel = 8503,
+    [string]$PastaSite = "C:\git\esteleicao\web",
     [string]$ServicoCaddy = "",
     [switch]$SemReiniciar
 )
@@ -72,12 +72,10 @@ Passo "Validando a configuracao do Caddy"
 $val = & $caddyExe validate --config $cfg --adapter caddyfile 2>&1 | ForEach-Object { "$_" }
 if ($LASTEXITCODE -eq 0) { Ok "configuracao valida" } else { Ruim "configuracao invalida:"; $val | Select-Object -Last 8 | ForEach-Object { Info $_ } }
 
-# ------------------------------------------------------------ 4. painel
-Passo "Painel em 127.0.0.1:$PortaPainel"
-try {
-    $r = Invoke-WebRequest "http://127.0.0.1:$PortaPainel/_stcore/health" -UseBasicParsing -TimeoutSec 10
-    Ok "painel respondeu ($($r.StatusCode))"
-} catch { Ruim "painel nao respondeu. Veja: nssm status esteleicao" }
+# ------------------------------------------------------------ 4. arquivos do site
+Passo "Arquivos do site em $PastaSite"
+if (Test-Path (Join-Path $PastaSite "index.html")) { Ok "index.html encontrado" } else { Ruim "nao achei $PastaSite\index.html (extraia o pacote_servidor.zip em C:\git)" }
+if (Test-Path (Join-Path $PastaSite "dados\brasil.json")) { Ok "dados gerados encontrados (dados\brasil.json)" } else { Ruim "faltam os dados: rode gerar_site.py no Mac e extraia o pacote de novo" }
 
 # ------------------------------------------------------------ 5. reinicia o Caddy
 if (-not $SemReiniciar) {
@@ -105,7 +103,7 @@ if (-not $achou) { Info "nenhuma linha sobre $Dominio no log (o Caddy pode nao t
 
 # ------------------------------------------------------------ 7. teste HTTPS local
 Passo "Testando HTTPS de $Dominio direto neste servidor"
-$cod = & curl.exe -s -o NUL -w "%{http_code}" --max-time 15 --resolve "${Dominio}:443:127.0.0.1" "https://$Dominio/_stcore/health" 2>$null
+$cod = & curl.exe -s -o NUL -w "%{http_code}" --max-time 15 --resolve "${Dominio}:443:127.0.0.1" "https://$Dominio/dados/brasil.json" 2>$null
 if ($cod -eq "200") { Ok "https://$Dominio responde com certificado valido" }
 else {
     Ruim "https://$Dominio ainda nao responde (codigo '$cod')"

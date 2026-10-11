@@ -17,7 +17,7 @@ interrompido, rode de novo: ele continua de onde parou.
 --conexoes   número de downloads simultâneos (padrão 8; reduza se der muitos erros)
 --completo   baixa o zip inteiro em vez de só os logs (retoma sozinho se cair)
 --zip        processa um zip que você já baixou (pelo navegador, curl etc.)
-Resultado: dados/logs_<ano>_t<turno>_<UF>.parquet  (o painel lê automaticamente)
+Resultado: dados/logs_<ano>_t<turno>_<UF>.parquet  (gerar_site.py lê automaticamente)
 
 Fonte: https://dadosabertos.tse.jus.br/dataset/resultados-2026-arquivos-transmitidos-para-totalizacao
 """
@@ -223,7 +223,7 @@ def main():
         if a.apagar_zip and not zip_local and caminho == completo:
             caminho.unlink()
             print("  zip apagado")
-    print("\nPronto. Rode:  streamlit run painel.py")
+    print("\nPronto. Rode:  python gerar_site.py --servir")
 
 
 if __name__ == "__main__":

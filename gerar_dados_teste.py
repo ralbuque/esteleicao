@@ -17,7 +17,8 @@ Inclui seções anômalas plantadas de propósito:
     python gerar_dados_teste.py
     python baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip
     for f in dados/teste_arqurna_*.zip; do python baixar_logs.py --zip $f; done
-    streamlit run painel.py
+    python baixar_locais.py --ano 1999 --zip dados/teste_eleitorado_local_votacao.zip
+    python gerar_site.py
 """
 import io
 import zipfile
@@ -132,13 +133,27 @@ def logjez(texto: bytes) -> bytes:
 
 
 
+def municipios_reais(uf: str, n: int) -> list[tuple[int, str, float, float]]:
+    """Sorteia municípios REAIS da UF (código do TSE, nome, lat, lon) para o mapa funcionar no teste."""
+    ref = pd.read_csv(Path(__file__).parent / "referencia" / "municipios.csv").dropna(subset=["cd_tse"])
+    ref = ref[ref["uf"] == uf]
+    esc = ref.sample(min(n, len(ref)), random_state=int(rng.integers(1 << 30)))
+    return [(int(r.cd_tse), r.nome.upper(), r.lat, r.lon) for r in esc.itertuples()]
+
+
+ENDERECOS = ["RUA DAS FLORES", "AVENIDA BRASIL", "RUA SÃO JOÃO", "PRAÇA DA MATRIZ", "RUA SETE DE SETEMBRO",
+             "AVENIDA GETÚLIO VARGAS", "RUA TIRADENTES", "RUA DOM PEDRO II", "AVENIDA CENTRAL"]
+BAIRROS = ["CENTRO", "JARDIM AMÉRICA", "VILA NOVA", "SÃO JOSÉ", "BOA VISTA", "SANTA LUZIA", "ZONA RURAL"]
+TIPOS_LOCAL = ["ESCOLA ESTADUAL", "ESCOLA MUNICIPAL", "COLÉGIO", "CENTRO COMUNITÁRIO", "UNIVERSIDADE"]
+
+
 def main():
     # ------------------------------------------------------------ seções e abstenção
     linhas = []
+    coords = {}
     for uf, base in UFS.items():
-        for m in range(rng.integers(8, 20)):
-            cd = int(rng.integers(10000, 99999))
-            nm = f"MUNICIPIO {uf}-{m + 1:02d}"
+        for cd, nm, lat, lon in municipios_reais(uf, int(rng.integers(8, 20))):
+            coords[cd] = (lat, lon)
             p_mun = np.clip(base + rng.normal(0, 0.03), 0.05, 0.6)
             p_sem_cad_mun = float(rng.uniform(0.04, 0.18))  # cobertura biométrica varia por município
             for zona in range(1, rng.integers(2, 5)):
@@ -180,6 +195,32 @@ def main():
     marca = df.merge(esc.assign(_f=1), how="left", on=list(esc.columns))["_f"].eq(1).to_numpy()
     df.loc[marca & (df["tipo"] == "normal"), "tipo"] = "escola_sem_cadastro"
 
+    # locais de votação (formato do arquivo do TSE "Eleitorado por local de votação"),
+    # com endereço e coordenadas inventados perto do centro do município
+    loc = df[["SG_UF", "CD_MUNICIPIO", "NM_MUNICIPIO", "NR_ZONA", "NR_SECAO", "NR_LOCAL_VOTACAO", "QT_APTOS"]].copy()
+    unicos = loc[["CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO"]].drop_duplicates()
+    info = {}
+    for r in unicos.itertuples(index=False):
+        lat, lon = coords[r.CD_MUNICIPIO]
+        k = int(rng.integers(1000))
+        info[tuple(r)] = (f"{TIPOS_LOCAL[k % 5]} {['ANITA GARIBALDI', 'RUI BARBOSA', 'MONTEIRO LOBATO', 'CECÍLIA MEIRELES', 'PAULO FREIRE'][k % 5]} {r.NR_LOCAL_VOTACAO % 100}",
+                          f"{ENDERECOS[k % 9]}, {int(rng.integers(10, 2000))}", BAIRROS[k % 7],
+                          f"{int(rng.integers(10000, 99999))}{int(rng.integers(100, 999))}",
+                          round(lat + rng.normal(0, 0.02), 6) if k % 13 else -1,
+                          round(lon + rng.normal(0, 0.02), 6) if k % 13 else -1)
+    vals = [info[(a, b, c)] for a, b, c in zip(loc["CD_MUNICIPIO"], loc["NR_ZONA"], loc["NR_LOCAL_VOTACAO"])]
+    for i, col in enumerate(["NM_LOCAL_VOTACAO", "DS_ENDERECO", "NM_BAIRRO", "NR_CEP", "NR_LATITUDE", "NR_LONGITUDE"]):
+        loc[col] = [v[i] for v in vals]
+    loc = loc.rename(columns={"QT_APTOS": "QT_ELEITOR_SECAO"})
+    loc.insert(0, "NR_TURNO", 1)
+    loc.insert(0, "AA_ELEICAO", 1999)
+    buf = io.StringIO()
+    loc.to_csv(buf, sep=";", index=False, decimal=",")
+    PASTA.mkdir(exist_ok=True)
+    with zipfile.ZipFile(PASTA / "teste_eleitorado_local_votacao.zip", "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("eleitorado_local_votacao_1999.csv", buf.getvalue().encode("latin-1"))
+    nomes_local = {k: v[0] for k, v in info.items()}
+
     PASTA.mkdir(exist_ok=True)
     for f in PASTA.glob("teste_arqurna_*.zip"):
         f.unlink()
@@ -218,7 +259,8 @@ def main():
 
     # ------------------------------------------------------------ zip de abstenção
     df["QT_COMPARECIMENTO"] = df["QT_APTOS"] - df["QT_ABSTENCOES"]
-    df["NM_LOCAL_VOTACAO"] = "ESCOLA " + df["NR_LOCAL_VOTACAO"].astype(str)
+    df["NM_LOCAL_VOTACAO"] = [nomes_local[(a, b, c)] for a, b, c in
+                              zip(df["CD_MUNICIPIO"], df["NR_ZONA"], df["NR_LOCAL_VOTACAO"])]
     df["NR_TURNO"] = 1
     df["ANO_ELEICAO"] = 1999
     partes = []
