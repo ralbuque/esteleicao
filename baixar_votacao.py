@@ -31,8 +31,9 @@ from download_tse import baixar_completo
 
 URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_secao/votacao_secao_{ano}_{uf}.zip"
 PASTA = Path(__file__).parent / "dados"
+# Em 2026 o Presidente (todas as UFs e o exterior) vem só no arquivo "BR"; o "ZZ" vem vazio.
 UFS = ["AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA",
-       "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ"]
+       "PB", "PE", "PI", "PR", "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "BR"]
 
 COLUNAS = {
     "turno": ["NR_TURNO"],

@@ -12,7 +12,7 @@ Uso:
     python baixar_transferencia.py
     python baixar_transferencia.py --zip transf_temporaria_secao_2026.zip
 
-O endereço do arquivo no CDN do TSE foi presumido. Se der "não publicado (404)",
+O endereço do arquivo no CDN do TSE foi conferido em out/2026 (pasta perfil_eleitor_tte).
 baixe pelo portal dadosabertos.tse.jus.br (conjunto "Eleitorado 2026") e use --zip.
 """
 from __future__ import annotations
@@ -26,7 +26,7 @@ import pandas as pd
 import leitura_tse as L
 from download_tse import baixar_completo
 
-URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/transferencia_temporaria/transf_temporaria_secao_{ano}.zip"
+URL = "https://cdn.tse.jus.br/estatistica/sead/odsele/perfil_eleitor_tte/transf_temporaria_secao_{ano}.zip"
 PASTA = Path(__file__).parent / "dados"
 CHAVE = ["uf", "cd_municipio", "zona", "secao"]
 
@@ -42,7 +42,7 @@ COLUNAS = {
     "cd_municipio_o": ["CD_MUNICIPIO_ORIGEM"],
     "zona_o": ["NR_ZONA_ORIGEM"],
     "secao_o": ["NR_SECAO_ORIGEM"],
-    "tipo": ["DS_TIPO_TRANSFERENCIA", "DS_CATEGORIA", "DS_TIPO_ELEITOR", "DS_MOTIVO_TRANSFERENCIA"],
+    "tipo": ["TP_TTE", "DS_TIPO_TRANSFERENCIA", "DS_CATEGORIA", "DS_TIPO_ELEITOR", "DS_MOTIVO_TRANSFERENCIA"],
 }
 OBRIGATORIAS = ["uf", "cd_municipio", "zona", "secao"]
 

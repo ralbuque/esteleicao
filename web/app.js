@@ -933,6 +933,7 @@ async function maisContexto(el, nota, X, P, secoes, L) {
 async function maisGastos(el, nota, X, P) {
   const R = X.gastos || {};
   const ms = D.municipios.filter((m) => (!E.uf || m.uf === E.uf) && (!E.mun || m.cd_municipio === E.mun) && m.gasto_total != null);
+  if (R.sem_municipio_maioria) { el.innerHTML = semDados(`Nesta eleição o TSE publicou as despesas dos candidatos com transporte, combustível, veículos e pessoal (${reais(R.total)} no total) sem o município do fornecedor, então não dá para calcular o gasto por eleitor de cada município.`); return; }
   if (!ms.length) { el.innerHTML = semDados("Falta a prestação de contas. Rode <code>python baixar_gastos.py</code> e gere o site de novo."); return; }
   nota.innerHTML = `Despesas contratadas pelos candidatos com transporte, combustível, locação de veículos e pessoal (inclui cabos eleitorais e mobilização de rua), pelo município do fornecedor, divididas pelos eleitores aptos. Campanha gasta em todo lugar; o que chama atenção é gasto por eleitor muitas vezes acima do resto do estado <strong>num município que também tem seções em atenção</strong>.${R.sem_municipio ? ` ${reais(R.sem_municipio)} em despesas sem município identificado ficaram de fora.` : ""}`;
   const tot = ms.reduce((a, m) => a + m.gasto_total, 0);

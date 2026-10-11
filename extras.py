@@ -412,7 +412,14 @@ def gastos(mun: pd.DataFrame, dados: Path, ano: int) -> tuple[pd.DataFrame, dict
     arq = dados / f"gastos_{ano}.parquet"
     if not arq.exists():
         return mun, {}
-    g = pd.read_parquet(arq).dropna(subset=["cd_municipio"])
+    bruto = pd.read_parquet(arq)
+    sem_mun = float(bruto.loc[bruto["cd_municipio"].isna(), "valor"].sum())
+    total = float(bruto["valor"].sum())
+    if total > 0 and sem_mun / total > 0.5:
+        # 2026: o TSE publicou as despesas sem o município do fornecedor; não dá para dividir por município
+        print(f"  gastos: {sem_mun / total:.1%} do valor sem município do fornecedor; relatório por município desligado")
+        return mun, {"total": round(total, 2), "sem_municipio": round(sem_mun, 2), "sem_municipio_maioria": True}
+    g = bruto.dropna(subset=["cd_municipio"])
     pv = g.pivot_table(index=g["cd_municipio"].astype(int), columns="categoria", values="valor", aggfunc="sum").fillna(0)
     pv.columns = [f"gasto_{c}" for c in pv.columns]
     pv["gasto_total"] = pv.sum(axis=1)
@@ -420,7 +427,6 @@ def gastos(mun: pd.DataFrame, dados: Path, ano: int) -> tuple[pd.DataFrame, dict
     mun["gasto_eleitor"] = mun["gasto_total"] / mun["aptos"]
     med_uf = mun.groupby("uf")["gasto_eleitor"].transform("median")
     mun["gasto_vs_uf"] = mun["gasto_eleitor"] / med_uf.where(med_uf > 0)
-    bruto = pd.read_parquet(arq)
     rel = {"total": round(float(bruto["valor"].sum()), 2), "sem_municipio": round(float(bruto.loc[bruto["cd_municipio"].isna(), "valor"].sum()), 2),
            "por_categoria": {c: round(float(v), 2) for c, v in bruto.groupby("categoria")["valor"].sum().items()},
            "municipios": int(mun["gasto_total"].gt(0).sum())}
@@ -444,7 +450,7 @@ def votacao(df: pd.DataFrame, dados: Path, ano: int, turno: int, niveis) -> tupl
         t = v.groupby(["uf", "cargo", "votavel"], observed=True)["votos"].sum().reset_index()
         t["nome"] = [nomes.get((c, n)) for c, n in zip(t["cargo"], t["votavel"])]
         totais.append(t)
-        if uf == "ZZ":
+        if uf in ("ZZ", "BR"):  # exterior, ou o arquivo nacional de Presidente: só entram na materialidade
             continue
         c, b = _concentracao(v, df[df["uf"] == uf])
         conc_secoes.append(c)
