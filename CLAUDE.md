@@ -99,7 +99,7 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
 - Sempre mostrar QUANTIDADE ao lado da porcentagem (pedido do usuário: a % sozinha assusta).
 - Visual: cores da urna (laranja do CORRIGE = atenção; verde do CONFIRMA), fonte Archivo; textos em português simples, sem jargão (z aparece só como "intensidade" no detalhe).
 
-## 6. Publicação (servidor Windows)
+## 6. Publicação antiga (servidor Windows de outra pessoa; só histórico, ver seção 7)
 
 - Servidor Windows, IP público **72.167.48.234**, repositório em **`C:\git\esteleicao`**.
 - O **Caddy** roda como serviço do **NSSM** com o Caddyfile principal em `C:\Git\veracibot\deploy\windows\Caddyfile`, que importa `C:/git/esteleicao/deploy/Caddyfile.est`.
@@ -137,9 +137,10 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
 - Limites NOVOS da Etapa 2 (propostos, ajustáveis): `extras.CONC` (voto concentrado: z 5/4/3, fatia 50/40/30%, 50/40/30 votos),
   manual tardio (z ≥ 3,5, ≥ 5 casos, ≥ 2× o esperado), sequência rápida ≥ 10 votos com < 30 s, votos antes das 8h ≥ 3,
   comparecimento entre turnos (z robusto ≥ 4 e +10 p.p.).
-- PRÓXIMO: decidir com o usuário o domínio `esteleicao.com` no GitHub Pages (CNAME) ou manter o Caddy; 2º turno em 25/10.
-- ❌ Pendente de antes: `https://esteleicao.com` dava `ERR_SSL_PROTOCOL_ERROR` (Caddy sem certificado). Rodar `.\deploy\diagnosticar_caddy.ps1`.
-- Observação: o `Caddyfile.duad` do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano).
+- Publicação (decisão do usuário, 12/out/2026): o endereço oficial é **https://rntjr.github.io/esteleicao/** (GitHub Pages),
+  sem domínio próprio e sem CNAME. O domínio `esteleicao.com`, o servidor Windows e o Caddy (seção 6) são de OUTRA pessoa,
+  que disponibilizou o código original: não configurar domínio nem mexer no servidor; a seção 6 fica só como histórico.
+- PRÓXIMO: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).
 
 ## 8. Rotinas
 
