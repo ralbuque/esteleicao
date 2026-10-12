@@ -42,13 +42,14 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `deploy/publicar_site.ps1` | Extrai o pacote, remove o serviço NSSM antigo do Streamlit, valida e recarrega o Caddy. |
 | `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy. |
 | `deploy/empacotar.py` | Gera `pacote_servidor.zip` com `web/` (site + dados) no Mac. |
+| `deploy/publicar_pages.ps1` | Roda `gerar_site.py` e publica `web/` (sem .gz, com .nojekyll) na branch órfã `gh-pages` (GitHub Pages). |
 | `docs/ideias-de-relatorios.md` | Próximos relatórios e dados sugeridos para fiscalização. |
 | `extras.py` | Análises da aba "Mais análises" (a–i de docs/ideias-de-relatorios.md). Só ACRESCENTA colunas; não muda os 3 critérios. Cada fonte é opcional. |
 | `leitura_tse.py` | Leitura de CSV do TSE com detecção flexível de colunas (usado pelos baixar_* novos). |
 | `baixar_votacao.py` | Votação por seção (por candidato) → `dados/votacao_<ano>_t<turno>_<UF>.parquet`. Materialidade e voto concentrado. Confere votos ÷ comparecimento por cargo. |
 | `baixar_perfil.py` | Perfil do eleitorado por seção → `dados/perfil_<ano>_<UF>.parquet` (16–17, 60–69, 70+, biometria). |
-| `baixar_ibge.py` | População Censo 2022 por idade (SIDRA, tabela 9514, a CONFIRMAR) → `dados/populacao_2022.parquet`. |
-| `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (URL do CDN PRESUMIDA). |
+| `baixar_ibge.py` | População Censo 2022 por idade (SIDRA, tabela 9514, confirmada) → `dados/populacao_2022.parquet`. |
+| `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (pasta `perfil_eleitor_tte` do CDN). |
 | `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
 | `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (26 conferências). |
 
@@ -108,28 +109,41 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
 
 ## 7. Estado atual e PRÓXIMO PASSO (onde paramos)
 
-- Out/2026 (sessão na nuvem, branch `claude/magical-goodall-0dehvi`, criada a partir de `reformulacao-site`):
-  ETAPA 2 implementada e testada SÓ com dados sintéticos (o proxy da nuvem bloqueou `cdn.tse.jus.br` e o IBGE):
-  - scripts novos `baixar_votacao.py`, `baixar_perfil.py`, `baixar_ibge.py`, `baixar_transferencia.py`, `baixar_gastos.py`;
-    `baixar_locais.py` passou a ler DS_TIPO_SECAO_AGREGADA / NR_SECAO_PRINCIPAL; `baixar_logs.py --refazer` reaproveita os
-    `logs_brutos` sem acessar o TSE; `logs_urna.metricas` ganhou `intervalos_rapidos`, `maior_seq_rapida`, `seq_rapida_inicio` (exige `--refazer`).
-  - `extras.py` + `gerar_site.enriquecer/relatorio_extras` → `web/dados/extras.json` e `extras/<UF>.json`; colunas opcionais nos arquivos de UF/zona.
-  - site: aba "Mais análises" (a–i), 4º critério opcional "voto concentrado" (bits em `flags_conc`, bit i = nível i), filtros de contexto
-    (tipo de local, idade explica, eleição anterior, transferência, agregadas), detalhe da seção com cartões novos, mapa com novas métricas,
-    plano com rotas (locais ALTA a ≤ 2 km, no município) e fichas imprimíveis por escola.
-  - Regressão: nos parquets sintéticos antigos, 0 diferenças em todos os números já existentes. Teste sintético: 26/26. Navegador: 0 erros de console (desktop, celular, escuro).
-  - Escala: base sintética de 321 mil seções com todas as fontes gerou o site em ~6 min, 220 MB em web/dados (nenhum arquivo > 10 MB). Memória não medida.
-- Limites NOVOS (propostos, ajustáveis, não são metodologia antiga): `extras.CONC` (voto concentrado: z 5/4/3, fatia 50/40/30%, 50/40/30 votos),
-  manual tardio (z ≥ 3,5, ≥ 5 casos, ≥ 2× o esperado pelo horário dos votos da própria seção), sequência rápida ≥ 10 votos com < 30 s,
-  votos antes das 8h ≥ 3, comparecimento entre turnos (z robusto ≥ 4 e +10 p.p.).
-- PRÓXIMO: Etapa 1 com dados reais (validar com AC/RR primeiro), conferir nomes de colunas de CADA arquivo novo do TSE
-  (votação, perfil, transferência e gastos foram PRESUMIDOS), tabela do SIDRA, Etapa 3 (conferência, tamanhos, resumo dos achados)
-  e Etapa 4 (commit em `reformulacao-site`, PR #1 do fork com prints reais, `deploy/publicar_pages.ps1`, Pages em https://rntjr.github.io/esteleicao/).
+- 12/out/2026 (sessão na nuvem): Etapas 2 a 4 feitas com DADOS REAIS do 1º turno de 2026. Código em `reformulacao-site`
+  (PR #1 do fork). Site publicado no GitHub Pages: **https://rntjr.github.io/esteleicao/** (branch `gh-pages`, um único commit,
+  substituída a cada publicação por `deploy/publicar_pages.ps1`; sem os `.gz`, com `.nojekyll`).
+- Validação real (bate com a seção 3): 124.746.009 votos no log; 99,57% das seções com log = comparecimento; 3.722.310 votos
+  após 17h (2,98%; o site mostra 3.722.495 por causa da harmonização de fuso); sem digital 12,2%.
+- O que os arquivos reais mostraram (já ajustado no código):
+  - transferência temporária: `odsele/perfil_eleitor_tte/transf_temporaria_secao_<ano>.zip`, uma linha por origem→destino, coluna `TP_TTE`;
+    traz também linhas do 2º turno (filtra por NR_TURNO).
+  - votação por seção: arquivos por UF trazem Governador, Senador e deputados; **Presidente vem só em `votacao_secao_2026_BR.zip`**
+    (todas as UFs e exterior); `..._ZZ.zip` vem vazio. `baixar_votacao.UFS` usa BR no lugar de ZZ; o BR entra só na materialidade.
+  - gastos: em 2026 o TSE publica as despesas **sem o município do fornecedor** (100% `#NULO`). A aba mostra só um aviso
+    (decisão do usuário). Categorias: R$ 1,33 bi em transporte, combustível, locação de veículos e pessoal.
+  - perfil do eleitorado: retrato de julho; bate com os aptos em ~20–45% das seções; 2.043.134 eleitores estão em seções agregadas (sem resultado próprio).
+  - IBGE tabela 9514 confirmada (Censo 2022, 203.080.756 pessoas; 162,3 mi com 16+).
+  - `referencia/municipios.csv` tinha o código TSE trocado em 7 municípios (Laje, Lajedão, Lajedinho, Lajedo do Tabocal, Lagoa Real/BA;
+    Santiago do Sul, Santa Terezinha do Progresso/SC); corrigido. Outras diferenças de nome com o TSE são só grafia.
+- Mudanças de apresentação pedidas pelo usuário: materialidade usa a diferença que DECIDIU a disputa (Senado: última vaga;
+  1º turno de Governador/Presidente: folga sobre a metade dos válidos, o que faltou para a metade ou 2º × 3º, o que for menor);
+  cadastro explica que eleitores > população 16+ é comum em cidade pequena (93% dos municípios < 5 mil eleitores; 14% dos > 100 mil).
+- Desempenho real: `gerar_site.py` ~12 min e pico de ~6,2 GB de RAM; `web/dados` 306 MB sem .gz (11,7 mil arquivos, maior 4,4 MB).
+  Navegador: 0 erros de console em 60 telas (desktop, celular, escuro), sem rolagem lateral no celular, telas em ≤ 1,4 s.
+- Achados reais (rigor padrão; nenhum é prova): 21.898 seções em atenção, 604 com 2 critérios, 2 com os 3 (Taquarana/AL z45 s174:
+  99 de 106 liberados pelo mesário, 27 seguidos, 31% após 17h; Nhamundá/AM z43 s47). Após 17h concentrado no NE (AL 9,3%, PE 7,5%,
+  BA 7,5%; SP 0,4%). Disputas em que os votos das seções em atenção passam da diferença: Senado RN e PA (última vaga), Governo RN,
+  AC (2º turno por 1.064 votos), PR (venceu no 1º turno por 6.012), DF e ES. Votos rápidos em sequência: nenhum (máx. 5 seguidos).
+- Limites NOVOS da Etapa 2 (propostos, ajustáveis): `extras.CONC` (voto concentrado: z 5/4/3, fatia 50/40/30%, 50/40/30 votos),
+  manual tardio (z ≥ 3,5, ≥ 5 casos, ≥ 2× o esperado), sequência rápida ≥ 10 votos com < 30 s, votos antes das 8h ≥ 3,
+  comparecimento entre turnos (z robusto ≥ 4 e +10 p.p.).
+- PRÓXIMO: decidir com o usuário o domínio `esteleicao.com` no GitHub Pages (CNAME) ou manter o Caddy; 2º turno em 25/10.
 - ❌ Pendente de antes: `https://esteleicao.com` dava `ERR_SSL_PROTOCOL_ERROR` (Caddy sem certificado). Rodar `.\deploy\diagnosticar_caddy.ps1`.
 - Observação: o `Caddyfile.duad` do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano).
 
 ## 8. Rotinas
 
+- Atualizar o GitHub Pages: `.\deploy\publicar_pages.ps1` (ou `-SemGerar` para publicar o `web/` já gerado).
 - Atualizar o site: no Mac `python gerar_site.py` e `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `.\esteleicao\deploy\publicar_site.ps1` (como Administrador).
 - 2º turno (25/10/2026): `python baixar_dados.py --turno 2`, `python baixar_logs.py --turno 2` e `python gerar_site.py --ano 2026 --turno 2` no Mac, quando o TSE publicar. O plano de fiscalização do 2º turno deve usar os dados do 1º.
 - Testes sem internet: `python testar_sem_internet.py` (gera, processa todas as fontes e confere os casos plantados).
