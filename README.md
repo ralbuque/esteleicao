@@ -123,6 +123,7 @@ Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md). Resumo: no Mac,
 - **Recorte** (barra abaixo das abas): Brasil → estado → município → zona. Vale para todas as telas e fica no endereço da página, então dá para compartilhar o link.
 - **Rigor**: rigoroso, padrão ou amplo (muda os limites dos três critérios).
 - **Panorama**: resumo em uma frase, números principais, os três critérios, votos por hora e a tabela do nível abaixo (estados, municípios, zonas ou seções).
+- **Simule o 2º turno**: nas disputas que foram ao 2º turno (presidente e governadores), os votos oficiais do 1º turno, os votos de quem ficou de fora, brancos, nulos e abstenção, e um cenário em que a pessoa escolhe como esses votos se dividem. Para presidente, soma os votos válidos a mais do 2º turno de 2022 na proporção do eleitorado atual, com a explicação da escolha. É uma conta, não uma previsão. Dados em `simulador.py` (`web/dados/turno2.json`).
 - **Mapa**: municípios pintados por seções em atenção, votos após 17h (quantidade ou %), abstenção baixa ou liberação manual. Num estado, mostra também os locais de votação em atenção (pelas coordenadas do TSE). Clicar num município lista as seções e os endereços.
 - **Votos após 17h**: quantidade e % por estado, município e zona; seções por faixa de quantidade; as seções com mais votos depois das 17h, com o horário do último voto e a comparação com as outras seções da mesma escola.
 - **Seções em atenção**: lista filtrável (critério, 2+ critérios, busca por escola/bairro/seção), exportável em CSV.

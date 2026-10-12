@@ -54,6 +54,7 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (31 conferências). ATENÇÃO: grava em `dados/` e `web/dados/` (sobrescreve `populacao_2022.parquet`); rode numa cópia do projeto se houver dados reais. |
 | `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários, `t_manual`/`t_mesario`, `mesario_cod` = código EMBARALHADO do mesário, `urna`). Grava também `dados/urnas_<ano>_t<turno>_<UF>.parquet` (seção × log × urna com votos: votos, 1º e último voto). `--conferir` compara com `logs_*.parquet`. A chave do embaralhamento fica em `dados/.sal_mesario` (fora do git; nunca publicar chave nem código). |
 | `medidas_eleitores.py` | Resume `eleitores_*.parquet` por SEÇÃO → `dados/medidas_eleitores_<ano>_t<turno>.parquet` (sem digital com foto, liberações com o leitor funcionando em volta, tempo de cabine dos eleitores de 6 cargos, dado que não conferiu, liberação em até 10 s). `gerar_site.py` lê se existir (`extras.parte2`). |
+| `simulador.py` | Dados da aba "Simule o 2º turno" → `web/dados/turno2.json`: disputas sem maioria no 1º turno (presidente e governadores) com votos por candidato, brancos, nulos, abstenção; `HISTORICO` (presidente 2010–2022, 1º e 2º turno, conferido no TSE) e `ajuste_referencia` (saldo de 2022 na proporção do eleitorado). `python simulador.py` regrava só esse arquivo; `--baixar` busca `consulta_cand_<ano>.zip` (nome de urna e partido). `gerar_site.py` chama `simulador.gerar`. |
 | `docs/analise-casos-atipicos.md` | Achados e fórmulas das análises de out/2026 (tempo de voto, liberação pelo mesário, casos atípicos de horário). |
 
 `dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
@@ -185,6 +186,17 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
   (4) sinal "cabine" (3+ eleitores de 6 cargos SEGUIDOS com menos de 25 s na cabine, ou 10+ no dia: 10 seções) no lugar de "rapidos";
   sem o arquivo de medidas o sinal antigo continua (é o que o teste sintético cobre). Rotina nova depois de baixar logs:
   `python eleitores_urna.py`, `python medidas_eleitores.py`, `python gerar_site.py`. Teste sintético: 45/45.
+- **Aba "Simule o 2º turno" (12/out, noite; pedido do usuário):** `TELAS.turno2` no app.js, logo depois de Panorama no menu; na barra de
+  recorte aparece o seletor "Disputa" (8 disputas: presidente + governos de AC, AM, DF, ES, RJ, RN, TO). Presidente: Flavio Bolsonaro
+  56.104.503 × Lula 53.879.538 (diferença 2.224.965); 9.321.993 votos de quem ficou de fora. Cenário de presidente = votos do 1º turno +
+  Grupo 1 (votos de quem ficou de fora menos 449.378 que anulam) + Grupo 2 (776.737 votos novos: 578.779 ausentes que voltam + 197.958
+  brancos que escolhem); saldo **+327.359** votos válidos = o de 2022 (+322.634) × eleitorado 2026/2022 (número aprovado pelo usuário; a
+  parcela dos brancos fecha a conta). Por que 2022: os dois finalistas somaram 91,6% no 1º turno (2026: 92,2%; 2010/14/18: 75–80%) e foi a
+  única eleição em que a abstenção caiu no 2º turno; a aba mostra a tabela e o intervalo das outras (−2.211.996 a +1.518.471).
+  Governadores: sem a referência de 2022 (decisão do assistente, explicada na tela: a referência é de disputa polarizada de presidente);
+  têm só a divisão dos votos de quem ficou de fora e um controle "não escolhem nenhum dos dois" que começa em zero. Cores neutras
+  (verde-azulado 1º colocado, roxo 2º), sem cor de partido. Nomes = nome de urna do TSE. Avisos "é uma conta, não uma previsão" na tela.
+  Teste sintético: 48/48. Depois do 2º turno a aba deve passar a mostrar o que aconteceu (comparação seção por seção): a fazer.
 - Ideias em aberto com o usuário: frase "o leitor voltou a funcionar às Xh" no detalhe; linha no detalhe
   para "dado não conferiu na 1ª tentativa"; trocar o texto do sinal "urna substituída" (nunca dispara em 2026: cada seção tem um só log
   e uma só urna); usar o BU para preencher digital/sem digital/mesário nas seções com log incompleto.

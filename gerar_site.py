@@ -16,7 +16,7 @@ Entradas (em dados/):
     locais_<ano>.parquet                 baixar_locais.py  (endereço e coordenadas da escola)
 Opcionais, para a aba "Mais análises" (veja extras.py): votacao_*, perfil_*, populacao_*,
     secoes_<ano-4>_t1 (eleição anterior), secoes_<ano>_t<outro turno>, transferencia_*, gastos_*.
-Saída (em web/dados/): brasil.json, municipios.json, apos17.json, plano.json, extras.json,
+Saída (em web/dados/): brasil.json, municipios.json, apos17.json, plano.json, extras.json, turno2.json,
     uf/<UF>.json (seções sinalizadas) e mun/<código>.json (todas as seções do município).
 """
 from __future__ import annotations
@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 
 import extras
+import simulador
 from analise import corrigir_fuso, juntar_horario, pontuar_secoes
 
 RAIZ = Path(__file__).parent
@@ -670,6 +671,11 @@ def main():
         lx = listas_extras(df, df[df["uf"] == u], CL, faixas, 1000)
         if lx:
             tamanhos[f"extras/{u}.json"] = gravar(saida / "extras" / f"{u}.json", lx)
+
+    # ---- aba "Simule o 2º turno" (só no 1º turno, se houver votação por seção)
+    sim = simulador.gerar(DADOS, meta["ano"], meta["turno"])
+    if sim:
+        tamanhos["turno2.json"] = gravar(saida / "turno2.json", sim)
 
     # ---- por município: resumo das zonas + perfil de horário;
     #      por zona: todas as seções (assim nenhum arquivo fica grande, nem na capital paulista)

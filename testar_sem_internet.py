@@ -182,6 +182,22 @@ def conferir() -> int:
     if "gastos" in ex and ex["gastos"]:
         gg = pd.read_parquet(D / "gastos_1999.parquet")["valor"].sum()
         caso("gastos: total = arquivo de gastos", 1, int(abs(gg - ex["gastos"]["total"]) < 1))
+    # aba "Simule o 2º turno" (simulador.py): só disputas sem maioria no 1º turno, com os votos da votação por seção
+    import simulador
+    sim = simulador.gerar(D, 1999, 1) or {"disputas": []}
+    vot = pd.concat([pd.read_parquet(a).assign(arq=a.stem.rsplit("_", 1)[1]) for a in D.glob("votacao_1999_t1_*.parquet")])
+    vot = vot[~vot["votavel"].isin([95, 96])]
+    def decidida(v):  # o 1º colocado passou da metade dos votos válidos
+        t = v.groupby("votavel")["votos"].sum()
+        return t.max() * 2 > t.sum()
+    esperadas = {"BR"} - ({"BR"} if decidida(vot[vot["cargo"] == 1]) else set()) |         {uf for uf, g in vot[vot["cargo"] == 3].groupby("arq") if not decidida(g)}
+    caso("simulador: disputas que vão ao 2º turno", len(esperadas), len(esperadas & {d["id"] for d in sim["disputas"]}),
+         len({d["id"] for d in sim["disputas"]} - esperadas), minimo=1.0 if esperadas else 0.0)
+    certos = sum(sum(c["votos"] for c in d["cands"]) == d["validos"] == int(vot[(vot["cargo"] == d["cargo"]) & ((vot["arq"] == d["id"]) | (d["id"] == "BR"))]["votos"].sum())
+                 for d in sim["disputas"])
+    caso("simulador: votos dos candidatos = votação por seção", len(sim["disputas"]), certos, minimo=1.0 if sim["disputas"] else 0.0)
+    aj = simulador.ajuste_referencia(158_745_502)  # eleitorado real de 2026: o saldo tem de ser o de 2022 na mesma proporção
+    caso("simulador: saldo de 2022 no eleitorado de 2026", 1, int(aj["saldo"] == 327_359 and aj["voltam"] + aj["brancos"] - aj["anulam"] == aj["saldo"]))
     # medidas por seção da Parte 2 (medidas_eleitores.py), numa seção montada à mão
     print("\nMedidas da Parte 2 (seção montada à mão):")
     import medidas_eleitores

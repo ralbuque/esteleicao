@@ -141,3 +141,27 @@ Medidas por seção em `medidas_eleitores.py` (país inteiro, sem o exterior).
    (0,14%); menos de 20 s: 12.451 (0,01%). 3+ seguidos abaixo de 25 s: 8 seções; sinal (3+ seguidos ou 10+ no dia): 10 seções.
    São Paulo de Olivença-AM z22 s97 (13 seguidos às 19h03, 47 no dia), São Gabriel da Cachoeira-AM z19 s33 (9 seguidos às 16h52),
    Bom Lugar-MA z66 (s41: 5 seguidos; s121 e s312 com 12 e 13 no dia).
+
+## 8. Aba "Simule o 2º turno" (12/out/2026; implementada)
+
+Não é análise de seções atípicas nem previsão: soma os votos oficiais do 1º turno e deixa a pessoa escolher a divisão dos votos em jogo.
+
+Presidente, 1º → 2º turno (TSE, `detalhe_votacao_munzona_<ano>.zip`, linha BRASIL; conferido em 12/out/2026):
+
+| Ano | Dois finalistas no 1º turno | Abstenção | Brancos | Nulos | Votos válidos |
+|---|---|---|---|---|---|
+| 2010 | 79,5% | 24.610.296 → 29.197.152 | 3.479.340 → 2.452.597 | 6.124.254 → 4.689.428 | 101.590.153 → 99.463.917 (−2.126.236) |
+| 2014 | 75,1% | 27.698.475 → 30.137.479 | 4.420.489 → 1.921.819 | 6.678.592 → 5.219.787 | 104.023.802 → 105.542.273 (+1.518.471) |
+| 2018 | 75,3% | 29.941.171 → 31.372.373 | 3.106.937 → 2.486.593 | 7.206.222 → 8.608.105 | 107.050.749 → 104.838.753 (−2.211.996) |
+| 2022 | 91,6% | 32.770.982 → 32.200.558 | 1.964.779 → 1.769.678 | 3.487.874 → 3.930.765 | 118.229.719 → 118.552.353 (+322.634) |
+| 2026 | 92,2% | 33.469.244 → ? | 2.300.798 → ? | 3.669.003 → ? | 119.306.034 → ? |
+
+A fatia dos dois finalistas (2010 a 2022) é o resultado oficial divulgado, não recalculado dos arquivos por candidato.
+
+Fórmula do cenário de presidente (`simulador.ajuste_referencia`), com f = eleitorado 2026 ÷ eleitorado 2022 = 158.745.502 ÷ 156.454.011:
+voltam = 570.424 × f = 578.779; anulam = 442.891 × f = 449.378; saldo = 322.634 × f = 327.359; brancos que escolhem = saldo + anulam −
+voltam = 197.958 (195.101 × f daria 197.959; a diferença de 1 voto é arredondamento). Grupo 1 = 9.321.993 − 449.378 = 8.872.615;
+Grupo 2 = 776.737. Ponto de virada: o 2º colocado precisa de mais de (Grupo 1 + Grupo 2 + diferença) ÷ 2 = 5.937.159 dos 9.649.352 (61,5%).
+
+Limites declarados na tela: uma eleição só de referência; não considera quem votou num finalista e muda de lado ou não volta; a origem
+dos nulos a mais (eleitores de quem ficou de fora) é suposição. Governadores não usam a referência de 2022.

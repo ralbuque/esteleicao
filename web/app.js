@@ -101,6 +101,8 @@ const D = {
   // extras.json só existe se o site foi gerado com a versão que tem "Mais análises"
   extras: () => json("extras.json").catch(() => ({})),
   extrasUf: (uf) => json(`extras/${uf}.json`).catch(() => ({})),
+  // turno2.json só existe no 1º turno, quando há votação por seção (aba "Simule o 2º turno")
+  turno2: () => json("turno2.json").catch(() => null),
 };
 
 // seções de um arquivo -> objetos com local de votação e município preenchidos
@@ -358,6 +360,13 @@ function graficoHoras(valores, { comparacao, rotComparacao, rotSerie = "Votos" }
 // =============================================================== barra de recorte (UF > município > zona)
 async function desenharEscopo() {
   const el = $("#escopo");
+  if (E.tela === "turno2") {  // nesta aba o recorte é a disputa (presidente ou um governo), não a geografia
+    const ds = (await D.turno2())?.disputas ?? [];
+    el.innerHTML = ds.length ? `<div class="escopo-dentro"><span class="rotulo">Disputa</span>
+      <select id="sel-disputa" aria-label="Disputa">${ds.map((d) => `<option value="${d.id}" ${d.id === (SIM.disputa ?? ds[0].id) ? "selected" : ""}>${esc(nomeDisputa(d))}</option>`).join("")}</select></div>` : "";
+    $("#sel-disputa")?.addEventListener("change", (e) => { SIM.disputa = e.target.value; renderizar(); });
+    return;
+  }
   const ufs = objetos(D.brasil.ufs).map((u) => u.uf);
   let html = `<div class="escopo-dentro"><span class="rotulo">Recorte</span>
     <select id="sel-uf" aria-label="Estado"><option value="">Brasil inteiro</option>${ufs.map((u) => `<option value="${u}" ${u === E.uf ? "selected" : ""}>${NOMES_UF[u] ?? u}</option>`).join("")}</select>`;
@@ -379,6 +388,166 @@ async function desenharEscopo() {
 
 // =============================================================== telas
 const TELAS = {};
+
+// ---------------------------------------------------------------- Simule o 2º turno
+// Soma os votos do 1º turno e deixa a pessoa escolher como os votos em jogo se dividem. Não é previsão.
+const SIM = { disputa: null, cen: {} };  // disputa aberta e as escolhas de cada uma (valem só durante a visita)
+const DE_UF = (uf) => ({ na: "da", em: "de" }[PREP_UF[uf]] ?? "do");
+const nomeDisputa = (d) => (d.cargo === 1 ? "Presidente (Brasil)" : `Governo ${DE_UF(d.uf)} ${NOMES_UF[d.uf] ?? d.uf}`);
+const sinal = (x) => (x > 0 ? "+" : x < 0 ? "−" : "") + n(Math.abs(x));
+const candHtml = (c) => `${esc(c.nome)}${c.partido ? ` <small>${esc(c.partido)}</small>` : ""}`;
+
+// Por que o cenário de presidente usa o saldo de votos válidos da eleição de referência (tabela + motivos + as três partes)
+function blocoReferencia(sim, d) {
+  const aj = d.ajuste, ref = sim.historico.find((h) => h.ano === aj.ano);
+  const [A, B] = d.cands, fora = d.validos - A.votos - B.votos;
+  const dois = (h) => h.dois[0] + h.dois[1];
+  const linhas = sim.historico.map((h) => `<tr class="${h.ano === aj.ano ? "ref" : ""}"><td>${h.ano}</td>
+    <td class="num">${p(dois(h))}</td><td class="num">${p(1 - dois(h))}</td>
+    <td class="num">${h.abst[1] > h.abst[0] ? "subiu" : "caiu"} ${n(Math.abs(h.abst[1] - h.abst[0]))}</td>
+    <td class="num">${sinal(h.validos[1] - h.validos[0])}</td></tr>`).join("");
+  const outros = sim.historico.filter((h) => h.ano !== aj.ano);
+  const fx = (f) => [Math.min(...outros.map(f)), Math.max(...outros.map(f))];
+  const [d0, d1] = fx(dois), [v0, v1] = fx((h) => h.validos[1] - h.validos[0]);
+  const anos = outros.map((h) => h.ano).join(", ").replace(/, (\d+)$/, " e $1");
+  return `<section class="bloco">
+    <header><h2>Quantos votos a mais no 2º turno, e por que ${n(aj.saldo)}</h2>
+      <p>Do 1º para o 2º turno o total de votos válidos muda: gente que não tinha ido passa a ir, gente que votou em branco escolhe um dos dois, e parte de quem perdeu o candidato anula. O cenário usa <strong>${sinal(aj.saldo)} votos válidos</strong>, que é o que aconteceu em ${aj.ano}, ajustado ao tamanho do eleitorado de hoje. Abaixo, por que ${aj.ano} e não outra eleição.</p></header>
+    <div class="tabela-envolta"><table>
+      <thead><tr><th>Eleição para presidente</th><th class="num">Os dois finalistas somaram no 1º turno</th><th class="num">Ficou com os outros candidatos</th><th class="num">Abstenção no 2º turno</th><th class="num">Votos válidos no 2º turno</th></tr></thead>
+      <tbody>${linhas}
+        <tr class="agora"><td>${sim.ano} <span class="sub">só o 1º turno</span></td><td class="num">${p((A.votos + B.votos) / d.validos)}</td><td class="num">${p(fora / d.validos)}</td><td class="num">—</td><td class="num">—</td></tr></tbody>
+    </table></div>
+    <p class="nota" style="margin-top:8px">Porcentagens sobre os votos válidos do 1º turno. As duas últimas colunas comparam o 2º turno com o 1º. Fonte: resultados oficiais do TSE.</p>
+    <ul class="porques">
+      <li><strong>${aj.ano} é a única eleição parecida com a de agora.</strong> Naquele ano os dois finalistas já tinham ${p(dois(ref))} dos votos válidos no 1º turno; agora têm ${p((A.votos + B.votos) / d.validos)}. Nas outras três, tinham entre ${p(d0, 0)} e ${p(d1, 0)}.</li>
+      <li><strong>Quando a disputa já está dividida entre dois nomes, sobra pouca gente sem candidato.</strong> Em ${anos}, cerca de um em cada quatro ou cinco eleitores perdeu o candidato no 1º turno, e o total de votos válidos mudou muito, para os dois lados (de ${sinal(v0)} a ${sinal(v1)}).</li>
+      <li><strong>Disputa apertada entre dois lados leva mais gente a votar.</strong> ${aj.ano} foi a única das quatro eleições em que a abstenção caiu no 2º turno (${n(ref.abst[0] - ref.abst[1])} eleitores a mais nas urnas). Nas outras três, subiu.</li>
+      <li><strong>O eleitorado cresceu.</strong> Eram ${n(ref.aptos)} eleitores em ${aj.ano} e são ${n(d.aptos)} agora (${p(d.aptos / ref.aptos - 1)} a mais). Por isso cada número de ${aj.ano} foi aumentado nessa mesma proporção: o saldo de ${sinal(ref.validos[1] - ref.validos[0])} vira ${sinal(aj.saldo)}.</li>
+    </ul>
+    <h3 style="margin:26px 0 12px">As três partes do saldo</h3>
+    <div class="criterios">
+      <div class="criterio cor-mais"><span class="qtd">${sinal(aj.voltam)}</span><h3>Não foram no 1º turno e vão no 2º</h3><p>Em ${aj.ano} a abstenção caiu de ${n(ref.abst[0])} para ${n(ref.abst[1])}: ${n(ref.abst[0] - ref.abst[1])} eleitores a mais nas urnas (${p((ref.abst[0] - ref.abst[1]) / ref.aptos, 2)} do eleitorado).</p></div>
+      <div class="criterio cor-mais"><span class="qtd">${sinal(aj.brancos)}</span><h3>Votaram em branco e escolhem um dos dois</h3><p>Em ${aj.ano} os brancos caíram de ${n(ref.brancos[0])} para ${n(ref.brancos[1])}: ${n(ref.brancos[0] - ref.brancos[1])} a menos. Com só dois nomes, parte de quem não tinha escolhido passa a escolher.</p></div>
+      <div class="criterio cor-menos"><span class="qtd">${sinal(-aj.anulam)}</span><h3>Votaram em quem ficou de fora e anulam</h3><p>Em ${aj.ano} os nulos subiram de ${n(ref.nulos[0])} para ${n(ref.nulos[1])}: ${n(ref.nulos[1] - ref.nulos[0])} a mais. É quem não aceita nenhum dos dois. Equivale a ${p(aj.anulam / fora)} dos ${n(fora)} votos de quem ficou de fora.</p></div>
+    </div>
+    <div class="saldo"><span class="qtd">${sinal(aj.saldo)}</span><strong>votos válidos a mais no 2º turno</strong><p>${n(aj.voltam)} + ${n(aj.brancos)} − ${n(aj.anulam)}. Os votos válidos passam de ${n(d.validos)} para ${n(d.validos + aj.saldo)}.</p></div>
+    <p class="nota" style="margin-top:12px">O limite desta escolha: é uma eleição só de referência. Se ${sim.ano} repetir o padrão das outras, o saldo pode ficar entre ${sinal(v0)} e ${sinal(v1)}, e o resultado do cenário muda junto. O TSE publica só os totais: supor que os nulos a mais vêm de quem perdeu o candidato é a leitura mais direta, mas não dá para confirmar.</p>
+  </section>`;
+}
+
+TELAS.turno2 = async (el) => {
+  const sim = await D.turno2();
+  if (!sim?.disputas?.length) {
+    el.innerHTML = `<div class="vazio">Não há disputa de 2º turno nestes dados (ou a votação por seção ainda não foi processada).</div>`;
+    return;
+  }
+  const d = sim.disputas.find((x) => x.id === SIM.disputa) || sim.disputas[0];
+  const cen = SIM.cen[d.id] ??= { g1: 50, g2: 50, nenhum: 0 };
+  const [A, B] = d.cands, fora = d.validos - A.votos - B.votos, dif = A.votos - B.votos;
+  const bn = d.brancos + d.nulos, aj = d.ajuste;
+  // abstenção oficial + quem compareceu mas não votou neste cargo (voto em trânsito só vale para presidente)
+  const ausentes = d.abstencoes + Math.max(0, d.comparecimento - d.validos - bn);
+  const outros = d.cands.slice(2), mostra = outros.slice(0, 3), resto = outros.slice(3);
+  const somaResto = resto.reduce((s, c) => s + c.votos, 0);
+  const lado = (c, classe, ids) => `<div class="lado ${classe}"><h3>${candHtml(c)}</h3><p class="qtd" id="${ids}"></p><p class="pct" id="${ids}p"></p><p class="sub" id="${ids}s"></p></div>`;
+  const divide = (id) => `<div class="divide">
+      <div class="ponta cor-lider"><strong>${candHtml(A)}</strong><span class="pct" id="${id}ap"></span><span class="votos" id="${id}av"></span></div>
+      <input type="range" id="${id}" min="0" max="100" step="1" value="${cen[id]}" aria-label="Para a direita, mais votos para ${esc(B.nome)}">
+      <div class="ponta dir cor-segundo"><strong>${candHtml(B)}</strong><span class="pct" id="${id}bp"></span><span class="votos" id="${id}bv"></span></div>
+    </div>`;
+  const leg = (cor, q, txt) => `<div><i style="background:${cor}"></i><p><b>${n(q)}</b> <span>${txt} (${p(q / d.aptos)} dos eleitores)</span></p></div>`;
+  el.innerHTML = `<div class="sim">
+    <section class="manchete">
+      <h1>A diferença no 1º turno foi de <b>${n(dif)} votos</b>. Os candidatos que ficaram de fora tiveram <b>${n(fora)}</b>.</h1>
+      <p><strong>${esc(nomeDisputa(d))}.</strong> Esta tela mostra quantos votos estão em disputa no 2º turno e deixa você montar um cenário. Os votos do 1º turno são os oficiais do TSE. Para onde eles vão no 2º turno ninguém sabe: essa parte é você quem escolhe.</p>
+    </section>
+    <div class="aviso"><strong>Isto é uma conta, não uma previsão.</strong> O voto é secreto: os dados dizem quantos votos cada candidato teve em cada seção, mas não dizem em quem cada eleitor vai votar no 2º turno.</div>
+    <div class="placar">
+      <div class="lado cor-lider"><h3>${candHtml(A)}</h3><p class="qtd">${n(A.votos)}</p><p class="pct">${p(A.votos / d.validos)} dos votos válidos</p><p class="sub">1º colocado no 1º turno</p></div>
+      <div class="meio"><span class="rot">Diferença</span><span class="qtd">${n(dif)}</span><span class="sub">${p(dif / d.validos)} dos votos válidos</span></div>
+      <div class="lado cor-segundo"><h3>${candHtml(B)}</h3><p class="qtd">${n(B.votos)}</p><p class="pct">${p(B.votos / d.validos)} dos votos válidos</p><p class="sub">2º colocado no 1º turno</p></div>
+    </div>
+    <section class="bloco">
+      <header><h2>Onde estão os votos em disputa</h2><p>Cada faixa é um grupo dos ${n(d.aptos)} eleitores aptos no 1º turno. Em laranja, os votos de quem ficou de fora do 2º turno.</p></header>
+      <div class="faixa-caixa">
+        <div class="faixa" role="img" aria-label="Divisão dos eleitores aptos no 1º turno">
+          <i style="flex:${A.votos};background:var(--c-lider)"></i><i style="flex:${B.votos};background:var(--c-segundo)"></i><i style="flex:${fora};background:var(--corrige)"></i><i style="flex:${bn};background:var(--tinta-3)"></i><i style="flex:${ausentes};background:var(--linha)"></i>
+        </div>
+        <div class="faixa-leg">${leg("var(--c-lider)", A.votos, esc(A.nome))}${leg("var(--c-segundo)", B.votos, esc(B.nome))}${leg("var(--corrige)", fora, "candidatos que ficaram de fora")}${leg("var(--tinta-3)", bn, "brancos e nulos")}${leg("var(--linha)", ausentes, "não votaram")}</div>
+      </div>
+      <div style="margin-top:18px">${numeros([
+        { rotulo: "Votos de quem ficou de fora", valor: n(fora), sub: `${dec(fora / dif, 1)} vezes a diferença`, destaque: true },
+        ...mostra.map((c) => ({ rotulo: `${esc(c.nome)}${c.partido ? ` (${esc(c.partido)})` : ""}`, valor: n(c.votos), sub: `${p(c.votos / fora)} desses votos` })),
+        ...(resto.length ? [{ rotulo: resto.length === 1 ? esc(resto[0].nome) : `Outros ${resto.length} candidatos`, valor: n(somaResto), sub: p(somaResto / fora) }] : []),
+      ])}</div>
+    </section>
+    ${aj ? blocoReferencia(sim, d) : ""}
+    <section class="bloco">
+      <header><h2>Monte um cenário</h2><p>${aj ? "Há dois grupos de votos em jogo. Arraste cada barra para dizer como o grupo se divide entre os dois candidatos. Os dois começam em metade para cada um."
+        : `Arraste as barras para dizer o que fazem os eleitores de quem ficou de fora. Para governador não usamos a referência de ${sim.referencia}: ela vem de uma disputa de presidente em que os dois primeiros já tinham mais de 90% dos votos, e aqui os candidatos que ficaram de fora tiveram ${p(fora / d.validos)}.`}</p></header>
+      ${aj ? "" : `<div class="grupo">
+        <h3>Quantos não escolhem nenhum dos dois <small id="nenhumv"></small></h3>
+        <p class="porque">Eleitores de quem ficou de fora que anulam, votam em branco ou não voltam. Começa em zero porque não há referência para este estado: ajuste como achar razoável.</p>
+        <input type="range" id="nenhum" min="0" max="100" step="1" value="${cen.nenhum}" aria-label="Porcentagem que não escolhe nenhum dos dois" style="width:100%;accent-color:var(--corrige);height:28px;margin-top:10px">
+      </div>`}
+      <div class="grupo">
+        <h3>${aj ? "Grupo 1: votos" : "Votos"} de quem ficou de fora <small id="g1t"></small></h3>
+        <p class="porque">${aj ? `São os ${n(fora)} votos dos candidatos eliminados, menos os ${n(aj.anulam)} que anulam.` : `São os ${n(fora)} votos dos candidatos eliminados, menos os que não escolhem nenhum dos dois.`}</p>
+        ${divide("g1")}
+      </div>
+      ${aj ? `<div class="grupo">
+        <h3>Grupo 2: votos novos <small>${n(aj.voltam + aj.brancos)} votos</small></h3>
+        <p class="porque">São os ${n(aj.voltam)} eleitores que não tinham ido votar mais os ${n(aj.brancos)} que tinham votado em branco.</p>
+        ${divide("g2")}
+      </div>` : ""}
+    </section>
+    <section class="bloco">
+      <header><h2>Resultado deste cenário</h2></header>
+      <div class="placar">${lado(A, "cor-lider", "ra")}<div class="meio"><span class="rot" id="rdr"></span><span class="qtd" id="rd"></span><span class="sub" id="rds"></span></div>${lado(B, "cor-segundo", "rb")}</div>
+      <div class="veredito" id="ver"><p class="frase" id="frase"></p><p class="virada" id="virada"></p></div>
+      <div class="tabela-envolta" style="margin-top:16px"><table>
+        <thead><tr><th>De onde vêm os votos</th><th class="num">${esc(A.nome)}</th><th class="num">${esc(B.nome)}</th></tr></thead>
+        <tbody>
+          <tr><td>Votos no 1º turno <span class="sub">oficial do TSE; o cenário supõe que todos repetem o voto</span></td><td class="num">${n(A.votos)}</td><td class="num">${n(B.votos)}</td></tr>
+          <tr><td>${aj ? "Grupo 1: de" : "De"} quem ficou de fora</td><td class="num" id="t1a"></td><td class="num" id="t1b"></td></tr>
+          ${aj ? `<tr><td>Grupo 2: votos novos</td><td class="num" id="t2a"></td><td class="num" id="t2b"></td></tr>` : ""}
+          <tr class="soma"><td class="total">Total no cenário</td><td class="num total" id="tta"></td><td class="num total" id="ttb"></td></tr>
+        </tbody></table></div>
+      <p class="nota" style="margin-top:14px">O que este cenário não considera: eleitores que votaram em um dos dois no 1º turno e mudam de lado ou não voltam${aj ? "" : ", e eleitores novos (quem não foi ou votou em branco no 1º turno)"}. Isso acontece, mas não há dado público que meça.</p>
+      <p class="nota">Depois do 2º turno, dá para comparar os dois turnos seção por seção e ver o que aconteceu de fato.</p>
+    </section></div>`;
+
+  const t = (id, txt) => { const x = $("#" + id, el); if (x) x.textContent = txt; };
+  function desenhar() {
+    const anulam = aj ? aj.anulam : Math.round(fora * cen.nenhum / 100);
+    const G1 = fora - anulam, G2 = aj ? aj.voltam + aj.brancos : 0;
+    // votos inteiros: o voto que sobra numa divisão ímpar vai para um lado no grupo 1 e para o outro no grupo 2
+    const b1 = Math.floor(G1 * cen.g1 / 100), a1 = G1 - b1, b2 = Math.ceil(G2 * cen.g2 / 100), a2 = G2 - b2;
+    const va = A.votos + a1 + a2, vb = B.votos + b1 + b2, tot = va + vb, df = va - vb, jogo = G1 + G2;
+    const empate = Math.round(df) === 0;
+    t("g1t", `${n(G1)} votos`);
+    t("nenhumv", `${cen.nenhum}% · ${n(anulam)} votos`);
+    for (const [id, a, b, f] of [["g1", a1, b1, cen.g1], ["g2", a2, b2, cen.g2]]) {
+      t(id + "ap", `${100 - f}%`); t(id + "av", `${n(a)} votos`); t(id + "bp", `${f}%`); t(id + "bv", `${n(b)} votos`);
+    }
+    t("ra", n(va)); t("rap", `${p(va / tot)} dos votos válidos`); t("ras", `ganha ${n(a1 + a2)} votos`);
+    t("rb", n(vb)); t("rbp", `${p(vb / tot)} dos votos válidos`); t("rbs", `ganha ${n(b1 + b2)} votos`);
+    t("rd", n(Math.abs(df))); t("rds", `${p(Math.abs(df) / tot)} dos votos válidos`);
+    t("rdr", empate ? "Empate" : `Vantagem de ${df > 0 ? A.nome : B.nome}`);
+    t("t1a", `+ ${n(a1)}`); t("t1b", `+ ${n(b1)}`); t("t2a", `+ ${n(a2)}`); t("t2b", `+ ${n(b2)}`); t("tta", n(va)); t("ttb", n(vb));
+    $("#ver", el).className = `veredito ${empate ? "cor-jogo" : df > 0 ? "cor-lider" : "cor-segundo"}`;
+    $("#frase", el).innerHTML = empate ? "Neste cenário dá <b>empate</b>."
+      : df > 0 ? `Neste cenário, <b>${esc(A.nome)} continua na frente</b> por <b>${n(df)} votos</b>.`
+        : `Neste cenário, <b>${esc(B.nome)} vira</b> e fica <b>${n(-df)} votos</b> na frente.`;
+    const precisa = (jogo + dif) / 2;
+    $("#virada", el).innerHTML = precisa < jogo
+      ? `Ponto de virada: ${esc(B.nome)} precisa ficar com mais de <b>${n(precisa)} dos ${n(jogo)} votos em jogo (${p(precisa / jogo)})</b>. Neste cenário fica com <b>${n(b1 + b2)} (${p(div(b1 + b2, jogo))})</b>.`
+      : `Ponto de virada: mesmo com todos os <b>${n(jogo)} votos em jogo</b>, ${esc(B.nome)} não alcança ${esc(A.nome)}: a diferença é de ${n(dif)}.`;
+  }
+  for (const id of ["g1", "g2", "nenhum"]) $("#" + id, el)?.addEventListener("input", (e) => { cen[id] = +e.target.value; desenhar(); });
+  desenhar();
+};
 
 // ---------------------------------------------------------------- Panorama
 TELAS.panorama = async (el) => {
@@ -1519,6 +1688,8 @@ TELAS["como-ler"] = async (el) => {
     <p><strong>Zona que votou até tarde.</strong> Em cada caso mostramos quantas seções da mesma zona eleitoral tiveram o último voto depois das ${n(m.zona_hora)}h. No país isso é raro: ${n(m.zonas_sem_19)} das ${n(m.zonas)} zonas não tiveram nenhuma seção assim, e só ${n(m.zonas_tarde)} chegaram a ${p(m.zona_alta, 0)} das seções. Quando a zona passa disso, o mais provável é congestionamento em toda a zona, e a seção deve ser lida assim. Testamos e deixamos de fora padrões que se mostraram comuns no país, como seções em que o ritmo não cai depois das 17h.</p>`; })() : ""}
     <h2>Sinais no log da urna</h2>
     <p>No detalhe de cada seção listamos fatos objetivos do log que ajudam a separar fila de algo estranho: urna parada antes das 17h e depois com votos, maioria dos votos tardios sem digital, ritmo muito rápido depois das 17h, sequências de liberações manuais, urna substituída, abertura atrasada e diferença entre o log e o comparecimento oficial.</p>
+    <h2>Simule o 2º turno</h2>
+    <p>A aba <a href="${link({ tela: "turno2" })}">Simule o 2º turno</a> não procura seções atípicas: ela soma os votos oficiais do 1º turno nas disputas que foram ao 2º turno e deixa você escolher como se dividem os votos de quem ficou de fora. <strong>É uma conta, não uma previsão</strong>: o voto é secreto e nenhum dado diz em quem cada eleitor vai votar. Para presidente, o cenário acrescenta os votos válidos a mais que o 2º turno de 2022 teve, na proporção do eleitorado de hoje; a própria aba mostra por que 2022 foi a referência e quanto o número mudaria com outras eleições.</p>
     <h2>Mais análises</h2>
     <p>A aba <a href="${link({ tela: "mais" })}">Mais análises</a> junta outras fontes para dar tamanho e contexto aos destaques: se os votos das seções em atenção mudariam o resultado de alguma disputa, a idade dos eleitores de cada seção (que explica parte da abstenção e das falhas de digital), o cadastro comparado com a população do IBGE, a repetição entre eleições e entre turnos, o tipo do local de votação, os gastos de campanha com transporte e pessoal, rotas e fichas para os fiscais e outros sinais do log (votos antes das 8h, liberações manuais concentradas no fim do dia e tempo de cabine muito curto). Nenhuma delas muda os três critérios.</p>
     <h2>Causas comuns para cada destaque</h2>
