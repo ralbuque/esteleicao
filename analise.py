@@ -246,6 +246,8 @@ def juntar_horario(secoes: pd.DataFrame, logs: pd.DataFrame | None) -> pd.DataFr
             s_d = df["votos_log"].groupby(g, observed=True).transform("sum")
             outras = (s_n - sem_dig) / (s_d - df["votos_log"]).replace(0, np.nan)
             df["dif_local_sem_digital_pp"] = (df["pct_sem_digital"] - outras) * 100
+        if "s00" in df:
+            df = salto_fim_do_dia(df)
     df["dif_log_comparecimento"] = df["votos_log"] - df["comparecimento"]
 
     s = pd.Series("", index=df.index)
@@ -266,6 +268,8 @@ def juntar_horario(secoes: pd.DataFrame, logs: pd.DataFrame | None) -> pd.DataFr
         add(df["maior_seq_manual"] >= 8, "8+ liberações manuais seguidas")
         if "dif_local_sem_digital_pp" in df:
             add(df["dif_local_sem_digital_pp"] >= 25, "sem digital 25+ p.p. acima das outras seções da escola")
+    if "z_sem_digital_fim" in df:
+        add(criterio_fim(df), "salto de liberações sem digital a partir das 16h")
     add(df["dif_log_comparecimento"].abs() >= 1, "votos no log ≠ comparecimento oficial")
     add(df["n_urnas"] > 1, "urna substituída")
     add(df["abertura_atrasada_min"] >= 30, "abertura atrasada ≥30 min")
@@ -307,6 +311,63 @@ def z_proporcao(df: pd.DataFrame, num: pd.Series, den: pd.Series, min_den: int =
     tau2 = resid.groupby(df["uf"], observed=True).transform(lambda s: _tau2_uf(s.index))
     z = resid / np.sqrt(var_acaso + tau2)
     return z, esperada
+
+
+# ====================================================================== salto sem digital no fim do dia
+HORA_FIM = 16          # "fim do dia": votos a partir das 16h (Brasília)
+Z_FIM = 3.0            # padrão do critério (o painel deixa ajustar)
+EXCESSO_MIN_FIM = 8    # votos sem digital a mais que o esperado, no mínimo
+LEITOR_MIN_FIM = 0.25  # entre quem tem digital, pelo menos 25% reconhecidos no fim do dia
+
+
+def salto_fim_do_dia(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Compara a seção com ela mesma: a proporção de eleitores liberados sem digital
+    (sem cadastro + manual) a partir das 16h contra a da própria seção antes das 16h.
+
+    Quem vota no lugar de um ausente não passa na digital dele, então esse voto sai
+    como "sem cadastro" ou como liberação manual. Fila às 17h não muda a composição
+    (é o mesmo público do dia), idosos votam cedo e leitor com defeito falha para
+    quase todos (por isso o leitor_ok_fim). Não depende da média do município.
+
+      excesso_sem_digital_fim  votos sem digital a partir das 16h acima do esperado
+                               pela taxa da própria seção antes das 16h
+      z_sem_digital_fim        z binomial desse excesso, padronizado por UF (mediana/MAD),
+                               porque o fim do dia tem perfil próprio
+      deficit_abstencao        abstenções esperadas − observadas (as que "faltaram")
+      votos_em_jogo            menor valor entre o déficit de abstenção e o excesso
+    """
+    tem = df["tem_log"].to_numpy(bool)
+    fuso = df["fuso"].fillna(0).to_numpy(int)[:, None]
+    tarde = (np.arange(24)[None, :] - fuso) >= HORA_FIM  # hora local -> Brasília
+
+    def somas(prefixo):
+        m = df[[f"{prefixo}{h:02d}" for h in range(24)]].fillna(0).to_numpy(np.float32)
+        return (m * ~tarde).sum(1), (m * tarde).sum(1)
+
+    n_d, n_t = somas("h")
+    s_d, s_t = somas("s")
+    m_t = somas("m")[1]
+    p = np.clip((s_d + 0.5) / (n_d + 1), 1e-3, 1 - 1e-3)
+    excesso = s_t - n_t * p
+    zb = pd.Series(np.where(tem & (n_t >= 10), excesso / np.sqrt(np.maximum(n_t * p * (1 - p), 1e-9)), np.nan),
+                   index=df.index)
+    med = zb.groupby(df["uf"], observed=True).transform("median")
+    mad = (zb - med).abs().groupby(df["uf"], observed=True).transform("median") * 1.4826
+    df["pct_sem_digital_antes_16"] = np.where(tem, s_d / np.maximum(n_d, 1), np.nan)
+    df["pct_sem_digital_fim"] = np.where(tem & (n_t > 0), s_t / np.maximum(n_t, 1), np.nan)
+    df["excesso_sem_digital_fim"] = np.where(tem, excesso, np.nan)
+    df["z_sem_digital_fim"] = (zb - med) / mad.clip(lower=0.5)
+    df["leitor_ok_fim"] = tem & ((n_t - s_t) / np.maximum(n_t - (s_t - m_t), 1) >= LEITOR_MIN_FIM)
+    df["deficit_abstencao"] = df["abst_esperadas"] - df["abstencoes"]
+    df["votos_em_jogo"] = np.minimum(df["deficit_abstencao"], df["excesso_sem_digital_fim"]).clip(lower=0)
+    return df
+
+
+def criterio_fim(df: pd.DataFrame, z_lim: float = Z_FIM) -> pd.Series:
+    """Seções com salto sem digital a partir das 16h (z ≥ z_lim, excesso mínimo e leitor funcionando)."""
+    return ((df["z_sem_digital_fim"] >= z_lim) & (df["excesso_sem_digital_fim"] >= EXCESSO_MIN_FIM)
+            & df["leitor_ok_fim"]).fillna(False).astype(bool)
 
 
 def votos_por_hora(df: pd.DataFrame, prefixo: str = "h") -> pd.Series:

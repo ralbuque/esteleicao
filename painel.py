@@ -12,8 +12,8 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from analise import (juntar_horario, limites_funil, perfil_horario, pontuar_secoes, resumo,
-                     resumo_coluna, votos_por_hora)
+from analise import (EXCESSO_MIN_FIM, Z_FIM, criterio_fim, juntar_horario, limites_funil, perfil_horario,
+                     pontuar_secoes, resumo, resumo_coluna, votos_por_hora)
 
 st.set_page_config(page_title="Abstenção por seção", page_icon="🗳️", layout="wide")
 PASTA = Path(__file__).parent / "dados"
@@ -97,12 +97,15 @@ CRITERIOS = {
     "Muitos sem digital": ("z_sem_digital", "pct_sem_digital", "% dos eleitores liberados sem digital"),
     "Liberação manual alta": ("z_manual", "pct_manual_cadastrados",
                               "% liberados pelo mesário (entre quem tem digital)"),
+    "Salto sem digital às 16h+": ("z_sem_digital_fim", "pct_sem_digital_fim",
+                                  "% liberados sem digital a partir das 16h"),
 }
 EIXO_Z = {
     "Abstenção baixa": "← abstenção mais ALTA · z da abstenção (invertido) · mais BAIXA →",
     "Votação tardia": "← votos mais cedo · z da hora média · mais tarde →",
     "Muitos sem digital": "← menos · z de eleitores sem digital · mais →",
     "Liberação manual alta": "← menos · z de liberação manual · mais →",
+    "Salto sem digital às 16h+": "← menos · z do salto sem digital a partir das 16h · mais →",
 }
 
 
@@ -189,14 +192,20 @@ with st.sidebar:
         st.markdown("**🖐️ Liberação manual pelo mesário**")
         st.caption("Eleitores COM digital cadastrada liberados pelo mesário: z ≥ limite acima e "
                    "pelo menos 5 casos.")
-        min_crit = st.radio("Mostrar seções que cumprem", [1, 2, 3], horizontal=True,
-                            format_func=lambda n: {1: "≥ 1 critério", 2: "≥ 2", 3: "os 3"}[n])
+        st.markdown("**🌆 Salto sem digital a partir das 16h**")
+        lim_fim = st.slider("Salto acima do esperado em ≥ (desvios)", 2.0, 6.0, Z_FIM, 0.5,
+                            help=f"Compara a seção com ela mesma: % liberados sem digital a partir das 16h "
+                                 f"contra o % antes das 16h. Exige {EXCESSO_MIN_FIM}+ votos a mais que o "
+                                 "esperado e o leitor ainda reconhecendo quem tem digital (descarta defeito).")
+        min_crit = st.radio("Mostrar seções que cumprem", [1, 2, 3, 4], horizontal=True,
+                            format_func=lambda n: {1: "≥ 1 critério", 2: "≥ 2", 3: "≥ 3", 4: "os 4"}[n])
     else:
-        lim_17, so_destoa, min_crit = 0.15, True, 1
+        lim_17, so_destoa, lim_fim, min_crit = 0.15, True, Z_FIM, 1
 
     st.subheader("Cruzamento de indicadores")
     tem_digital = "z_sem_digital" in base
-    disponiveis = [c for c in CRITERIOS if c in ("Abstenção baixa", "Votação tardia") or tem_digital]
+    disponiveis = [c for c in CRITERIOS if c in ("Abstenção baixa", "Votação tardia")
+                   or (tem_digital and CRITERIOS[c][0] in base)]
     if tem_logs:
         criterios = st.multiselect(
             "Critérios que precisam valer AO MESMO TEMPO", disponiveis,
@@ -229,7 +238,7 @@ df = df.assign(score_cruzado=calcular_score(df))
 NOME_CRUZ = " + ".join(c.lower() for c in criterios)
 
 def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
-    """Marca os três critérios de interesse e conta quantos cada seção cumpre."""
+    """Marca os quatro critérios de interesse e conta quantos cada seção cumpre."""
     f_abst = (d[medida] <= -limite) & (d["aptos"] >= min_aptos)
     if "votos_apos_17" in d:
         f_17 = (d["pct_apos_17"] >= lim_17) & (d["votos_apos_17"] >= 10)
@@ -242,15 +251,20 @@ def sinalizar(d: pd.DataFrame) -> pd.DataFrame:
         f_man = ((d["z_manual"] >= limite) & (d["votos_manual"] >= 5)).fillna(False).astype(bool)
     else:
         f_man = pd.Series(False, index=d.index)
-    n = f_abst.astype(int) + f_17.astype(int) + f_man.astype(int)
+    if "z_sem_digital_fim" in d:
+        f_fim = criterio_fim(d, lim_fim)
+    else:
+        f_fim = pd.Series(False, index=d.index)
+    n = f_abst.astype(int) + f_17.astype(int) + f_man.astype(int) + f_fim.astype(int)
     rot = pd.Series("", index=d.index, dtype=object)
     alguma = n > 0
     if alguma.any():  # monta o texto só para as poucas seções que cumprem algum critério
         partes = pd.concat([f_abst[alguma].map({True: "abstenção baixa", False: ""}),
                             f_17[alguma].map({True: "voto após 17h", False: ""}),
-                            f_man[alguma].map({True: "liberação manual", False: ""})], axis=1)
+                            f_man[alguma].map({True: "liberação manual", False: ""}),
+                            f_fim[alguma].map({True: "salto sem digital às 16h+", False: ""})], axis=1)
         rot[alguma] = partes.apply(lambda r: " · ".join(x for x in r if x), axis=1)
-    return d.assign(f_abst=f_abst, f_17=f_17, f_man=f_man, n_criterios=n, criterios_cumpridos=rot,
+    return d.assign(f_abst=f_abst, f_17=f_17, f_man=f_man, f_fim=f_fim, n_criterios=n, criterios_cumpridos=rot,
                     alerta=np.where(n >= min_crit, "sinalizada", "normal"))
 
 
@@ -272,6 +286,11 @@ with st.expander("ℹ️ Como ler este painel"):
         "grande dos votos é depois das 17h e a seção destoa das outras da mesma escola.\n"
         "- **Liberação manual**: eleitor com digital cadastrada que não foi reconhecida e foi liberado pelo "
         "mesário. Acontece com idosos, digitais gastas e leitores sujos ou com defeito.\n"
+        "- **Salto sem digital a partir das 16h**: a seção passa a liberar bem mais eleitores sem digital no "
+        "fim do dia do que ela mesma liberava antes das 16h. Quem vota no lugar de um ausente não passa na "
+        "digital dele, por isso esse é o sinal do voto no lugar de quem faltou. Fila às 17h não muda essa "
+        "proporção (é o mesmo público do dia). Explicações comuns: leitor que falhou por um tempo e eleitores "
+        "sem digital cadastrada que deixaram para votar no fim do dia.\n"
         "- Com cerca de 470 mil seções, dezenas a centenas aparecem como extremas só por acaso. Para "
         "investigar um caso, compare com as outras seções da mesma escola, consulte o boletim de urna e o "
         "log da seção no site do TSE e, se houver dúvida, procure o TRE do estado.")
@@ -290,7 +309,7 @@ c[5].metric("🔻 Abstenção baixa", int(df["f_abst"].sum()),
             help=f"Seções com {medida} ≤ −{limite} e ≥ {min_aptos} aptos")
 c[6].metric("🚩 Sinalizadas", int((df["alerta"] == "sinalizada").sum()),
             help=f"Seções que cumprem pelo menos {min_crit} dos critérios: abstenção baixa, "
-                 "voto após 17h, liberação manual")
+                 "voto após 17h, liberação manual, salto sem digital às 16h+")
 
 dl = com_log(df)
 if len(dl):
@@ -437,6 +456,11 @@ def detalhe_secao(s: pd.Series):
                               title=f"Como cada eleitor foi liberado, hora a hora ({n} votos)",
                               yaxis_title="votos")
             st.plotly_chart(fig, width="stretch")
+        if pd.notna(s.get("pct_sem_digital_fim")):
+            st.caption(f"Sem digital antes das 16h: {pct(s['pct_sem_digital_antes_16'])} · a partir das 16h: "
+                       f"{pct(s['pct_sem_digital_fim'])} · {s['excesso_sem_digital_fim']:+.0f} votos sem digital "
+                       f"em relação ao esperado pela própria seção (z {s['z_sem_digital_fim']:+.1f}) · "
+                       f"abstenções abaixo do esperado: {s['deficit_abstencao']:.0f}")
 
     if vizinhas is not None:
         st.markdown("**Outras seções do mesmo local de votação** (mesma escola, mesmo público — "
@@ -556,12 +580,18 @@ with aba_alertas:
         grav = grav + sel["z_manual"].clip(lower=0).fillna(0)
     if "pct_apos_17" in sel:
         grav = grav + (sel["pct_apos_17"].fillna(0) / max(lim_17, 1e-9)) * limite
+    if "z_sem_digital_fim" in sel:
+        grav = grav + sel["z_sem_digital_fim"].clip(lower=0).fillna(0)
     sel = sel.assign(gravidade=grav).sort_values(["n_criterios", "gravidade"], ascending=False)
-    k = st.columns(4)
+    k = st.columns(5)
     k[0].metric("🔻 Abstenção baixa", int(df["f_abst"].sum()))
     k[1].metric("⏰ Voto após 17h", int(df["f_17"].sum()) if tem_logs else "—")
     k[2].metric("🖐️ Liberação manual", int(df["f_man"].sum()) if tem_logs else "—")
-    k[3].metric("Cumprem 2 ou 3 critérios", int((df["n_criterios"] >= 2).sum()))
+    k[3].metric("🌆 Salto sem digital às 16h+", int(df["f_fim"].sum()) if tem_logs else "-",
+                help=("Destas, com déficit de abstenção cobrindo ao menos metade do excesso: "
+                      f"{int((df['f_fim'] & (df['deficit_abstencao'] >= 0.5 * df['excesso_sem_digital_fim'])).sum())}")
+                if "deficit_abstencao" in df else None)
+    k[4].metric("Cumprem 2 ou mais critérios", int((df["n_criterios"] >= 2).sum()))
     sem_log = int((~df.loc[df["alerta"] == "sinalizada", "tem_log"]).sum()) if "tem_log" in df else 0
     st.write(f"**{len(sel):,}** seções cumprem pelo menos {min_crit} critério(s) (de {len(df):,}). "
              "Ordenadas pelo número de critérios e, depois, pela gravidade. Selecione uma linha para "
@@ -570,7 +600,9 @@ with aba_alertas:
     cols = [c for c in ["uf", "municipio", "zona", "secao", "n_criterios", "criterios_cumpridos",
                         "taxa_abstencao", "taxa_esperada", "z_ajustado", "votos_apos_17", "pct_apos_17",
                         "dif_local_min", "votos_manual", "pct_manual_cadastrados", "manual_esperado",
-                        "z_manual", "maior_seq_manual", "sinais", "aptos", "nome_local"] if c in sel]
+                        "z_manual", "maior_seq_manual", "pct_sem_digital_antes_16", "pct_sem_digital_fim",
+                        "excesso_sem_digital_fim", "deficit_abstencao", "votos_em_jogo", "sinais", "aptos",
+                        "nome_local"] if c in sel]
     if medida != "z_ajustado":
         cols.insert(cols.index("z_ajustado") + 1, medida)
     evento = st.dataframe(
@@ -578,9 +610,12 @@ with aba_alertas:
         on_select="rerun", selection_mode="single-row",
         column_config={**{c: st.column_config.NumberColumn(format="percent")
                           for c in ["taxa_abstencao", "taxa_esperada", "pct_apos_17",
-                                    "pct_manual_cadastrados", "manual_esperado"]},
+                                    "pct_manual_cadastrados", "manual_esperado", "pct_sem_digital_antes_16",
+                                    "pct_sem_digital_fim"]},
                        **{c: st.column_config.NumberColumn(format="%.2f")
                           for c in ["z_ajustado", "z_binomial", "z_simples", "z_manual"]},
+                       **{c: st.column_config.NumberColumn(format="%.0f")
+                          for c in ["excesso_sem_digital_fim", "deficit_abstencao", "votos_em_jogo"]},
                        "dif_local_min": st.column_config.NumberColumn(format="%+.0f min"),
                        "n_criterios": st.column_config.NumberColumn("critérios", format="%d")})
     st.download_button("⬇️ Baixar lista (CSV)", sel[cols].to_csv(index=False, sep=";", decimal=",")
