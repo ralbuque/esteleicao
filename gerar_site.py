@@ -276,7 +276,7 @@ SOMAS = ["aptos", "comparecimento", "abstencoes", "votos_log", "votos_apos_17", 
          "votos_sem_cadastro", "votos_digital", "com_log", "com_17h"]
 # somas que só existem quando a fonte opcional foi baixada (Mais análises)
 SOMAS_OPC = ["eleitores_perfil", "el_70_mais", "el_16_17", "el_biometria", "transf_recebidos",
-             "votos_antes_8", "manual_16h", "man17", "cad17"]
+             "votos_antes_8", "manual_16h", "man17", "cad17", "sd_foto", "man_leitor_ok", "cab6", "cab6_lt25"]
 
 
 def preparar(df: pd.DataFrame) -> pd.DataFrame:
@@ -314,6 +314,10 @@ def agregar(df: pd.DataFrame, por: list[str]) -> pd.DataFrame:
             a[f"{nome}_salto"] = extras.bit(df["flags_lib"], 3 + i).groupby(chaves, observed=True).sum()
     if "flags_lib" in df:
         a["defeito"] = extras.bit(df["flags_lib"], extras.BIT_DEFEITO).groupby([df[c] for c in por], observed=True).sum()
+    if "flags_p2" in df:  # Parte 2: tag "sem digital, com foto" e sinal "cabine muito rápida"
+        chaves = [df[c] for c in por]
+        a["p2_foto"] = extras.bit(df["flags_p2"], extras.BIT_FOTO).groupby(chaves, observed=True).sum()
+        a["p2_cabine"] = extras.bit(df["flags_p2"], extras.BIT_CABINE).groupby(chaves, observed=True).sum()
     if "flags_atip" in df:  # casos extremamente atípicos (tags)
         chaves = [df[c] for c in por]
         for nome_bit, b in [("fora", extras.BIT_FORA), ("tarde", extras.BIT_TARDE), ("soz", extras.BIT_SOZINHA)]:
@@ -335,6 +339,8 @@ def cols_agg(df: pd.DataFrame) -> dict:
     if "flags_lib" in df:
         c.update({f"{n}_{k}": 0 for n in NIVEIS for k in ["lib17", "salto"]})
         c["defeito"] = 0
+    if "flags_p2" in df:
+        c.update({"p2_foto": 0, "p2_cabine": 0})
     if "flags_atip" in df:
         c.update({k: 0 for k in ["atip_fora", "atip_tarde", "atip_soz", "fora_votos"]})
         c.update({f"{n}_{k}": 0 for n in NIVEIS for k in ["atip", "atip2"]})
@@ -432,6 +438,8 @@ OPC_LISTA = {
     "horas_man": None, "horas_cad": None,
     "flags_atip": 0, "fora_log": 0, "abertura": 3, "ult_outras": 3, "v17_outras": 1, "aptos_outras": 0,
     "local_com_log": 0, "zona_19": 0, "zona_log": 0,
+    "flags_p2": 0, "sd_foto": 0, "sd_cadastro": 0, "sd_excesso": 0, "man_leitor_ok": 0,
+    "cab6": 0, "cab6_med": 0, "cab6_lt20": 0, "cab6_lt25": 0, "cab6_seq25": 0, "cab6_seq25_ini": 3,
 }
 OPC_DETALHE = {
     **OPC_LISTA, "eleitores_perfil": 0, "el_70_mais": 0, "el_16_17": 0, "el_biometria": 0, "pct_biometria": 3,
@@ -508,7 +516,10 @@ def listas_extras(df: pd.DataFrame, d: pd.DataFrame, CL: dict, faixas: np.ndarra
         out["lista_antes_8"] = lista(d["votos_antes_8"] > 0, "votos_antes_8")
     if "z_manual_tarde" in d:
         out["lista_manual_tarde"] = lista(extras.manual_tarde(d), "z_manual_tarde")
-    if "maior_seq_rapida" in d:
+    if "flags_p2" in d:
+        out["lista_cabine"] = lista(extras.bit(d["flags_p2"], extras.BIT_CABINE) > 0, ["cab6_seq25", "cab6_lt25"])
+        out["lista_foto"] = lista(extras.bit(d["flags_p2"], extras.BIT_FOTO) > 0, "sd_foto")
+    elif "maior_seq_rapida" in d:
         out["lista_rapidos"] = lista(d["maior_seq_rapida"] >= 6, "maior_seq_rapida")
     return out
 
@@ -555,6 +566,11 @@ def main():
     # casos extremamente atípicos: votos fora do log, urna começou tarde, terminou sozinha (tags)
     df = extras.atipicos(df)
     rel["atipicos"] = extras.resumo_atipicos(df, NIVEIS)
+    # Parte 2 (medidas_eleitores.py, opcional): sem digital com foto, leitor funcionando em volta, tempo de cabine
+    df, rel["parte2"] = extras.parte2(df, DADOS, meta["ano"], meta["turno"])
+    if rel["parte2"]:
+        rel["sinais"]["cabine"] = {k: rel["parte2"][k] for k in ("cab6", "cab6_lt25", "cab6_lt20", "cab6_med", "cabine_secoes", "cabine_seq")}
+        rel["sinais"].pop("rapidos", None)
     print(f"  {len(df):,} seções, {int(df['tem_log'].sum()):,} com log ({time.time() - t0:.0f}s)")
 
     saida: Path = a.saida
@@ -594,6 +610,7 @@ def main():
                          "defeito_antes": extras.DEFEITO_ANTES} if "flags_lib" in df else None,
                  "atip": {**extras.ATIP, **{k: rel["atipicos"][k] for k in ("zonas", "zonas_sem_19", "zonas_tarde")}}
                  if "flags_atip" in df else None,
+                 "p2": rel["parte2"] or None,
                  "faixas": FAIXAS},
         "total": {k: _num(br[k], 0) for k in CA},
         "ufs": tabela(uf, {"uf": None, **CA}),
@@ -612,7 +629,8 @@ def main():
     lib_amplo = ((df["flags_lib"].fillna(0).astype("int64") & ((1 << 2) | (1 << 5) | (1 << extras.BIT_DEFEITO))) > 0) \
         if "flags_lib" in df else False
     atip = (df["flags_atip"].fillna(0) > 0) if "flags_atip" in df else False
-    cand = df[(df["f_amplo"] > 0) | conc_amplo | lib_amplo | atip].copy()
+    p2 = (df["flags_p2"].fillna(0) > 0) if "flags_p2" in df else False
+    cand = df[(df["f_amplo"] > 0) | conc_amplo | lib_amplo | atip | p2].copy()
     CL = com_opcionais(df, COLS_SECAO_LISTA, OPC_LISTA)
     hor = faixas[df.index.get_indexer(cand.index)] if len(cand) else np.zeros((0, len(FAIXAS)))
     cand["horas"] = [" ".join(map(str, r)) for r in hor]

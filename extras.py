@@ -70,6 +70,16 @@ ATIP = {"fora_min": 50,          # votos fora do log: comparecimento oficial −
         "zona_hora": 19.0,       # contexto: seções da zona com último voto depois das 19h
         "zona_alta": 0.05}       # ... a zona "votou até tarde" quando são 5% ou mais (metade das zonas do país não tem nenhuma)
 BIT_FORA, BIT_TARDE, BIT_SOZINHA = 0, 1, 2   # flags_atip
+# Parte 2 (medidas_eleitores.py): identificação do eleitor e tempo de cabine. Tag e sinal, fora dos critérios.
+P2 = {"foto_min": 20,       # tag "sem digital, com foto": eleitores sem digital cadastrada com foto no cadastro
+      "foto_frac": 0.5,     # ... e pelo menos metade dos sem digital da seção
+      "perfil_tol": 0.03,   # o cadastro (perfil de julho) só é comparado quando bate com os aptos em ±3%
+      "cab_piso": 25,       # sinal "cabine muito rápida": eleitores de 6 cargos com menos de 25 s na cabine
+      "cab_seq": 3,         # ... 3 ou mais SEGUIDOS
+      "cab_dia": 10,        # ... ou 10 ou mais no dia
+      "viz": 10, "viz_ok": 0.8}  # "leitor funcionando em volta": 8+ dos 10 eleitores com digital mais próximos reconhecidos
+BIT_FOTO, BIT_CABINE = 0, 1   # flags_p2
+COLS_P2 = ["sd_foto", "man_leitor_ok", "cab6", "cab6_med", "cab6_lt20", "cab6_lt25", "cab6_seq25", "cab6_seq25_ini"]
 
 
 def bit(s: pd.Series, i: int) -> pd.Series:
@@ -842,3 +852,48 @@ def resumo_atipicos(df: pd.DataFrame, niveis) -> dict:
     out["zonas_sem_19"] = int((z["zona_19"] == 0).sum())
     out["zonas_tarde"] = int((z["zona_19"] / z["zona_log"] >= ATIP["zona_alta"]).sum())
     return out
+
+
+# ================================================================ Parte 2: identificação do eleitor e tempo de cabine
+def parte2(df: pd.DataFrame, dados: Path, ano: int, turno: int) -> tuple[pd.DataFrame, dict]:
+    """Junta as medidas por seção de medidas_eleitores.py (se o arquivo existir). Grava em df:
+      sd_foto               eleitores sem digital cadastrada que têm foto no cadastro
+      sd_cadastro, sd_excesso   eleitores sem biometria no cadastro de julho e quantos votaram "sem digital" a mais que isso
+                            (só onde o perfil bate com os aptos)
+      man_leitor_ok         liberações pelo mesário com o leitor reconhecendo a maioria dos eleitores em volta
+      cab6, cab6_med, cab6_lt20, cab6_lt25, cab6_seq25, cab6_seq25_ini   tempo de cabine dos eleitores de 6 cargos
+      flags_p2              bit 0: tag "sem digital, com foto"; bit 1: sinal "cabine muito rápida"
+    e troca o sinal "rapidos" (intervalo entre votos, que se confunde com voto em trânsito) por "cabine"."""
+    arq = dados / f"medidas_eleitores_{ano}_t{turno}.parquet"
+    if not arq.exists():
+        return df, {}
+    m = pd.read_parquet(arq, columns=CHAVE + COLS_P2)
+    df = _juntar(df, m, COLS_P2)
+    tem = df["tem_log"].astype(bool) & df["cab6"].notna()
+    fuso = df["fuso"].fillna(0) if "fuso" in df else 0
+    df["cab6_seq25_ini"] = (df["cab6_seq25_ini"] / 3600 - fuso).where(df["cab6_seq25"] > 0)
+    sd = df["votos_sem_cadastro"]
+    foto = tem & (df["sd_foto"] >= P2["foto_min"]) & (df["sd_foto"] >= P2["foto_frac"] * sd)
+    cabine = tem & ((df["cab6_seq25"] >= P2["cab_seq"]) | (df["cab6_lt25"] >= P2["cab_dia"]))
+    if "el_biometria" in df and "eleitores_perfil" in df:
+        bate = (df["eleitores_perfil"] > 0) & ((df["eleitores_perfil"] - df["aptos"]).abs() <= P2["perfil_tol"] * df["aptos"])
+        df["sd_cadastro"] = (df["eleitores_perfil"] - df["el_biometria"]).where(bate & tem)
+        df["sd_excesso"] = (sd - df["sd_cadastro"]).where(bate & tem)
+    df["flags_p2"] = (foto.fillna(False).to_numpy().astype(np.int64) << BIT_FOTO
+                      | cabine.fillna(False).to_numpy().astype(np.int64) << BIT_CABINE)
+    # o sinal antigo de votos rápidos sai; entra o de cabine
+    s = df["sinais_cod"].str.replace(r"(^|,)rapidos(?=,|$)", "", regex=True).str.lstrip(",")
+    df["sinais_cod"] = s.where(~cabine.fillna(False), s + np.where(s == "", "", ",") + "cabine")
+    T = df.loc[tem]
+    rel = {"limites": P2, "sd": int(sd[tem].sum()), "sd_foto": int(T["sd_foto"].sum()),
+           "foto_secoes": int(foto.sum()), "foto_municipios": int(df.loc[foto, "cd_municipio"].nunique()),
+           "foto_eleitores": int(df.loc[foto, "sd_foto"].sum()),
+           "man": int(df.loc[tem, "votos_manual"].sum()), "man_leitor_ok": int(T["man_leitor_ok"].sum()),
+           "cab6": int(T["cab6"].sum()), "cab6_lt25": int(T["cab6_lt25"].sum()), "cab6_lt20": int(T["cab6_lt20"].sum()),
+           "cab6_med": float(T["cab6_med"].median()), "cabine_secoes": int(cabine.sum()),
+           "cabine_seq": int((tem & (df["cab6_seq25"] >= P2["cab_seq"])).sum())}
+    if "sd_excesso" in df:
+        rel["excesso_secoes"] = int((df["sd_excesso"] >= P2["foto_min"]).sum())
+        rel["excesso_e_foto"] = int(((df["sd_excesso"] >= P2["foto_min"]) & foto).sum())
+        rel["perfil_bate"] = int(df["sd_cadastro"].notna().sum())
+    return df, rel

@@ -52,7 +52,7 @@ Não separou (comum/explicado): votos a mais vindos sem digital (nas 25.360 seç
 do excesso foi sem digital, abaixo da média 12,2%); voto em trânsito (77–98% dos transferidos de outro estado votam;
 origem nunca concentrada: no máximo 7 de uma mesma seção); rajadas de votos em 10 minutos.
 
-Separou (a implementar, Parte 2):
+Separou (Parte 2; resultado com os dados reais na seção 7):
 - **Leitor com defeito × liberação seletiva**: as campeãs de liberação pelo mesário (Trindade-GO z49 s123, Dias d'Ávila,
   Simões Filho, S. Francisco do Conde, Angélica-MS, Serra-ES) têm 0 digitais reconhecidas desde as 8h = leitor quebrado.
   "Liberação seletiva" = leitor reconhecendo a maioria na mesma hora, mas alguns eleitores liberados pelo mesário
@@ -121,3 +121,23 @@ d) **BU e RDV** (arquivos `-bu.dat` e `-rdv.dat` do zip do TSE, ASN.1; lidos por
    pela mesma urna do log publicado: troca de urna, com o log da primeira não publicado (não é cédula de papel).
 e) **Mesma urna em mais de uma seção**: nenhuma. 497.869 seções com voto, 497.869 urnas distintas; cada seção tem um único arquivo de log
    e uma única urna (o sinal "urna substituída", `n_urnas > 1`, nunca dispara em 2026).
+
+## 7. Parte 2 com os dados reais (12/out/2026; implementada)
+
+Medidas por seção em `medidas_eleitores.py` (país inteiro, sem o exterior).
+
+1. **Liberação seletiva × leitor com defeito**: "leitor funcionando em volta" = pelo menos 8 dos 10 eleitores com digital mais próximos
+   (5 antes, 5 depois) reconhecidos. Brasil: 7.380.452 de 8.319.736 liberações (88,7%); nas 107 seções com leitor com defeito, ~0%.
+   Das 7.515 seções com o critério de liberação manual, 651 têm 30+ liberações assim (80%+ do total), mas com 17% de eleitores de 70+
+   (Brasil: 9%) e taxa de 13–18%: perfil de idosos, não um grupo suspeito. Decisão: sem tag; só a frase com os números no detalhe.
+2. **Sem digital cadastrada, mas com foto** ("Foto do eleitor apresentada" em quem foi liberado só pelo ano de nascimento): 327.175 de
+   6.931.133 (4,7%; PR 36,8%, MT 12,9%, SP 9,0%). Tag: 20+ e 50%+ dos sem digital → 116 seções em 36 municípios (Ulianópolis-PA 23,
+   Maracajá-SC 15, Balneário Arroio do Silva-SC 14, Nazaré Paulista-SP 12, Indaiatuba-SP 9).
+3. **Sem digital > cadastro** (perfil de julho bate com os aptos ±3% em 475.134 seções): 46 seções com 20+ votos "sem digital" além dos
+   eleitores sem biometria do cadastro; 44 delas estão entre as 116 do item 2. Ex.: Indaiatuba-SP z211 s438, 337 eleitores todos com
+   biometria no cadastro, 59 votaram como sem digital, 53 com foto. Hipótese NÃO verificada: biometria coletada/importada depois da
+   preparação das urnas. Entrou como parte da tag do item 2 (comparação no detalhe da seção).
+4. **Tempo de cabine** (liberado → voto computado, eleitores de 6 cargos: 124.538.798): mediana por seção 55 s; menos de 25 s: 169.994
+   (0,14%); menos de 20 s: 12.451 (0,01%). 3+ seguidos abaixo de 25 s: 8 seções; sinal (3+ seguidos ou 10+ no dia): 10 seções.
+   São Paulo de Olivença-AM z22 s97 (13 seguidos às 19h03, 47 no dia), São Gabriel da Cachoeira-AM z19 s33 (9 seguidos às 16h52),
+   Bom Lugar-MA z66 (s41: 5 seguidos; s121 e s312 com 12 e 13 no dia).

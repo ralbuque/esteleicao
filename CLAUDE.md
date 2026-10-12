@@ -53,6 +53,7 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
 | `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (31 conferências). ATENÇÃO: grava em `dados/` e `web/dados/` (sobrescreve `populacao_2022.parquet`); rode numa cópia do projeto se houver dados reais. |
 | `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários, `t_manual`/`t_mesario`, `mesario_cod` = código EMBARALHADO do mesário, `urna`). Grava também `dados/urnas_<ano>_t<turno>_<UF>.parquet` (seção × log × urna com votos: votos, 1º e último voto). `--conferir` compara com `logs_*.parquet`. A chave do embaralhamento fica em `dados/.sal_mesario` (fora do git; nunca publicar chave nem código). |
+| `medidas_eleitores.py` | Resume `eleitores_*.parquet` por SEÇÃO → `dados/medidas_eleitores_<ano>_t<turno>.parquet` (sem digital com foto, liberações com o leitor funcionando em volta, tempo de cabine dos eleitores de 6 cargos, dado que não conferiu, liberação em até 10 s). `gerar_site.py` lê se existir (`extras.parte2`). |
 | `docs/analise-casos-atipicos.md` | Achados e fórmulas das análises de out/2026 (tempo de voto, liberação pelo mesário, casos atípicos de horário). |
 
 `dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
@@ -175,9 +176,16 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
   em 3.216 de 3.216 seções e o tipo de liberação do BU bate com a nossa leitura do log; votos fora do log = troca de urna (o BU tem
   todos os votos); nenhuma urna com votos em duas seções; mesmo mesário em 2+ seções: 117 de 695.124; dado que não conferiu: 1,36%
   (erro de digitação corrigido); liberação rápida: mínimo 4 s, nada impossível. Nenhum item justificou tag nova.
-- Teste sintético: 36/36 (`testar_sem_internet.py`, rodar numa CÓPIA do projeto; casos novos sorteados com `rng_atip`).
-- PENDENTE: Parte 2 do documento (liberação seletiva × leitor com defeito, sem digital com foto, sem digital > cadastro, tempo de cabine
-  no lugar de "votos rápidos"). Ideias em aberto com o usuário: frase "o leitor voltou a funcionar às Xh" no detalhe; linha no detalhe
+- Teste sintético (`testar_sem_internet.py`, rodar numa CÓPIA do projeto; casos novos sorteados com `rng_atip`).
+- **Etapa 5 (Parte 2) implementada em 12/out** (`medidas_eleitores.py` + `extras.parte2`, `flags_p2`, limites em `extras.P2`; decisões
+  aprovadas pelo usuário): (1) liberação seletiva NÃO virou tag (88,7% das liberações do país acontecem com o leitor funcionando em
+  volta; as seções que se destacam são de idosos); entrou só uma frase no detalhe; (2)+(3) uma tag única "Sem digital, com foto"
+  (20+ eleitores sem digital com foto no cadastro e 50%+ dos sem digital): 116 seções em 36 municípios; 44 delas também têm 20+ votos
+  "sem digital" além do cadastro de julho (mesmo fenômeno; o detalhe mostra a comparação quando o perfil bate com os aptos ±3%);
+  (4) sinal "cabine" (3+ eleitores de 6 cargos SEGUIDOS com menos de 25 s na cabine, ou 10+ no dia: 10 seções) no lugar de "rapidos";
+  sem o arquivo de medidas o sinal antigo continua (é o que o teste sintético cobre). Rotina nova depois de baixar logs:
+  `python eleitores_urna.py`, `python medidas_eleitores.py`, `python gerar_site.py`. Teste sintético: 45/45.
+- Ideias em aberto com o usuário: frase "o leitor voltou a funcionar às Xh" no detalhe; linha no detalhe
   para "dado não conferiu na 1ª tentativa"; trocar o texto do sinal "urna substituída" (nunca dispara em 2026: cada seção tem um só log
   e uma só urna); usar o BU para preencher digital/sem digital/mesário nas seções com log incompleto.
 - PRÓXIMO também: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).

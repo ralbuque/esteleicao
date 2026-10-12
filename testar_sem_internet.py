@@ -182,6 +182,28 @@ def conferir() -> int:
     if "gastos" in ex and ex["gastos"]:
         gg = pd.read_parquet(D / "gastos_1999.parquet")["valor"].sum()
         caso("gastos: total = arquivo de gastos", 1, int(abs(gg - ex["gastos"]["total"]) < 1))
+    # medidas por seção da Parte 2 (medidas_eleitores.py), numa seção montada à mão
+    print("\nMedidas da Parte 2 (seção montada à mão):")
+    import medidas_eleitores
+    T = lambda h, m=0, s=0: h * 3600 + m * 60 + s
+    # tipo: 0 digital, 1 sem digital cadastrada, 2 mesário. 14 eleitores na ordem do dia.
+    tipos = [0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 1, 1, 2]
+    cabine = [60, 20, 22, 24, 70, 80, 50, 50, 50, 50, 50, 40, 45, 90]  # 3 seguidos abaixo de 25 s (2º ao 4º)
+    e = pd.DataFrame({"cd_municipio": 1, "zona": 1, "secao": 1, "ordem": range(1, 15), "tipo": tipos, "cargos": [6] * 13 + [1],
+                      "t_lib": [T(9, k) for k in range(14)], "lidas": 4, "tempo_esgotado": 0, "foto": [0] * 11 + [1, 0, 0],
+                      "dado_nao_confere": [0] * 13 + [1], "t_manual": [T(9, k) - 8 if t == 2 else -1 for k, t in enumerate(tipos)]})
+    e["t_voto"] = e["t_lib"] + cabine
+    r = medidas_eleitores.medir(e).iloc[0]
+    for nome, obtido, esperado in [("sem digital / com foto", (r.sd, r.sd_foto), (2, 1)), ("liberações pelo mesário", r.man, 2),
+                                   ("liberação com o leitor funcionando em volta", r.man_leitor_ok, 1),  # a última não tem 8 vizinhos
+                                   ("liberação isolada (anterior e seguinte reconhecidos)", r.man_isolada, 1),
+                                   ("eleitores de 6 cargos", r.cab6, 13), ("menos de 25 s na cabine", r.cab6_lt25, 3),
+                                   ("maior sequência abaixo de 25 s", r.cab6_seq25, 3), ("início da sequência", r.cab6_seq25_ini, T(9, 1)),
+                                   ("dado não conferiu / até 10 s", (r.man_dado_nc, r.man_ate10s), (1, 2))]:
+        obtido = tuple(map(int, obtido)) if isinstance(esperado, tuple) else int(obtido)
+        igual = obtido == esperado
+        resultados.append(igual)
+        print(f"  {'OK   ' if igual else 'FALHA'} {nome:<52} {obtido} (esperado {esperado})")
     ok = all(resultados)
     print(f"\n{'Tudo certo' if ok else 'Há falhas'}: {sum(resultados)} de {len(resultados)} conferências.")
     return 0 if ok else 1

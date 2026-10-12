@@ -37,6 +37,8 @@
   --c-tarde-claro: #f6e6d2;
   --c-sozinha: #a3266b;       /* tag: terminou sozinha */
   --c-sozinha-claro: #f8dfee;
+  --c-foto: #3d5a99;          /* tag: sem digital, com foto */
+  --c-foto-claro: #e1e8f7;
   --mapa-0: #e3e8e4;
   --mapa-1: #fbe3cc;
   --mapa-2: #f6c08f;
@@ -77,6 +79,8 @@
     --c-tarde-claro: #3d2a12;
     --c-sozinha: #f090c4;
     --c-sozinha-claro: #451530;
+    --c-foto: #9db8f0;
+    --c-foto-claro: #1c2a4a;
     --confirma: #5cc48a;
     --mapa-0: #233335;
     --mapa-1: #8a4a1f;
@@ -176,6 +180,7 @@ main { padding-top: 28px; padding-bottom: 48px; outline: none; min-height: 60vh;
 .cor-fora { --cor: var(--c-fora); --cor-claro: var(--c-fora-claro); }
 .cor-tarde { --cor: var(--c-tarde); --cor-claro: var(--c-tarde-claro); }
 .cor-sozinha { --cor: var(--c-sozinha); --cor-claro: var(--c-sozinha-claro); }
+.cor-foto { --cor: var(--c-foto); --cor-claro: var(--c-foto-claro); }
 .contexto-zona { padding: 8px 10px; border-left: 3px solid var(--linha); background: var(--superficie); border-radius: 4px; }
 td .selos + .selos, td .sub + .selos { margin-top: 4px; }
 

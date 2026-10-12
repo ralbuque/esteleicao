@@ -50,6 +50,9 @@ const TAGS = {
     tem: (s) => !!((s.flags_atip ?? 0) & 2) },
   sozinha: { curto: "Terminou sozinha", nome: "Terminou muito depois das outras seções do local", classe: "cor-sozinha", grupo: "atip",
     tem: (s) => !!((s.flags_atip ?? 0) & 4) },
+  // Parte 2 (flags_p2): eleitores sem digital cadastrada que têm foto no cadastro
+  foto: { curto: "Sem digital, com foto", nome: "Sem digital cadastrada, mas com foto no cadastro", classe: "cor-foto", grupo: "id",
+    tem: (s) => !!((s.flags_p2 ?? 0) & 1) },
 };
 // a lista "Casos extremamente atípicos" junta as três tags acima e o salto às 17h
 const ATIPICOS = ["fora", "tarde", "sozinha", "salto"];
@@ -423,6 +426,13 @@ TELAS.panorama = async (el) => {
         ${cartaoTag("sozinha", a.atip_soz, `A seção continuou votando ${n(D.brasil.meta.atip.soz_min)} minutos ou mais depois de todas as outras do mesmo local, que quase não tiveram votos depois das 17h. Não é fila da escola.`, "atipicos")}
       </div>
     </section>` : ""}
+    ${a.p2_foto != null && D.brasil.meta.p2 ? (() => { const m = D.brasil.meta.p2, L = m.limites; return `<section class="bloco">
+      <header><h2>Sem digital, mas com foto no cadastro</h2><p>Tag: não entra na contagem dos três critérios e não muda com o rigor.</p></header>
+      <p class="nota" style="margin-bottom:12px">Quem não tem digital cadastrada é liberado só pelo ano de nascimento. ${esc(Cap(emRecorte()))}, <strong>${plural(a.sd_foto, "eleitor sem digital tinha", "eleitores sem digital tinham")} foto no cadastro</strong>, ${p(div(a.sd_foto, a.votos_sem_cadastro))} dos ${n(a.votos_sem_cadastro)} sem digital. Foto e digital costumam ser colhidas juntas, então isso é incomum.</p>
+      <div class="criterios">
+        ${cartaoTag("foto", a.p2_foto, `Seções com ${n(L.foto_min)} ou mais eleitores sem digital que têm foto no cadastro, sendo pelo menos ${p(L.foto_frac, 0)} dos sem digital da seção. No país são ${n(m.foto_secoes)} seções em ${n(m.foto_municipios)} municípios. Pode ser cadastro atualizado depois da preparação das urnas; vale conferir com o cartório.`)}
+      </div>
+    </section>`; })() : ""}
     ${tem17 ? `<section class="bloco duas-colunas">
       <div><header style="margin-bottom:14px"><h2>A que horas se votou</h2></header><div id="g-horas"></div></div>
       <div><header style="margin-bottom:14px"><h2>Votos depois das 17h, por seção</h2></header><div id="t-faixas"></div><p class="nota" style="margin-top:10px">A maior parte das seções tem poucos votos depois das 17h, o que é normal. Os casos que interessam estão nas faixas de cima.</p></div>
@@ -618,7 +628,7 @@ TELAS.atencao = async (el) => {
       ? `Cada cartão é uma seção com a tag marcada, tenha ou não algum critério. As tags não entram na contagem das seções em atenção. ${soLib ? "Clique para ver as liberações hora a hora." : "Clique para ver os números de cada caso."}`
       : "Cada cartão é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.";
     if (tagsSel.length && !soLib) {
-      $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" e ")}. A lista própria, com os números de cada caso, está em <a href="${link({ tela: "atipicos" })}">Casos extremamente atípicos</a>.`;
+      $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" e ")}.${tagsSel.some((k) => TAGS[k].grupo === "atip") ? ` A lista própria, com os números de cada caso, está em <a href="${link({ tela: "atipicos" })}">Casos extremamente atípicos</a>.` : ""}`;
     } else if (tagsSel.length) {
       const lib = ls.reduce((a, s) => a + (s.man17 || 0), 0), cad = ls.reduce((a, s) => a + (s.cad17 || 0), 0);
       $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" e ")}. Nelas, <b>${plural(lib, "eleitor foi liberado", "eleitores foram liberados")} pelo mesário depois das 17h</b>${cad ? `, ${p(div(lib, cad))} de ${n(cad)} com digital` : ""}.`;
@@ -1278,13 +1288,15 @@ async function maisOperacional(el, nota, X) {
 // i) sinais extras do log
 async function maisSinais(el, nota, X, P, secoes, L) {
   const R = X.sinais || {};
-  if (!R.antes_8 && !R.manual_tarde && !R.rapidos) { el.innerHTML = semDados("Faltam os logs das urnas. Rode <code>python baixar_logs.py</code> e gere o site de novo."); return; }
+  if (!R.antes_8 && !R.manual_tarde && !R.rapidos && !R.cabine) { el.innerHTML = semDados("Faltam os logs das urnas. Rode <code>python baixar_logs.py</code> e gere o site de novo."); return; }
   nota.innerHTML = "Padrões do log que não entram nos critérios, mas ajudam a decidir onde olhar. Todos têm explicações comuns, que estão ao lado de cada um.";
   const blocos = [];
   if (R.antes_8) blocos.push(["antes", "Votos antes das 8h", `${plural(R.antes_8.votos, "voto foi registrado", "votos foram registrados")} antes das 8h (horário de Brasília) em ${plural(R.antes_8.secoes, "seção", "seções")}. A causa mais comum é o relógio da urna adiantado (como em Guaporema, Nova Olímpia e Tapira, no PR); a ata da seção registra o horário real de abertura.`, "lista_antes_8", (s) => s.votos_antes_8 > 0,
     { k: "votos_antes_8", rot: "Votos antes das 8h", num: true, html: (o) => `<span class="forte">${n(o.votos_antes_8)}</span><span class="sub">de ${n(o.votos_log)} votos</span>` }]);
   if (R.manual_tarde) blocos.push(["mtarde", "Liberações manuais no fim do dia", `Das 16h em diante, a mesa já sabe quem faltou. Marcamos a seção quando as liberações pelo mesário desse horário são pelo menos ${n(R.manual_tarde.min)}, o dobro do que o horário dos votos da própria seção faria esperar, e bem acima do acaso: ${plural(R.manual_tarde.secoes_sinal, "seção", "seções")}. No país, ${n(R.manual_tarde.manual_16h)} das ${n(R.manual_tarde.manual)} liberações manuais (${p(div(R.manual_tarde.manual_16h, R.manual_tarde.manual))}) foram das 16h em diante. Leitor de digital que começa a falhar à tarde também produz esse padrão.`, "lista_manual_tarde", (s) => (s.sinais_cod || "").includes("manual_tarde"),
     { k: "manual_16h", rot: "Liberações manuais das 16h em diante", num: true, html: (o) => `<span class="forte">${n(o.manual_16h)}</span><span class="sub">de ${n(o.votos_manual)}; esperado ~${n(o.manual_tarde_esperado)}</span>` }]);
+  if (R.cabine) blocos.push(["cabine", "Tempo de cabine muito curto", `Entre os ${n(R.cabine.cab6)} eleitores que votaram nos 6 cargos, ${n(R.cabine.cab6_lt25)} (${p(div(R.cabine.cab6_lt25, R.cabine.cab6), 2)}) ficaram menos de ${n(X.parte2?.limites.cab_piso ?? 25)} segundos na cabine; a seção típica tem mediana de ${n(R.cabine.cab6_med)} segundos. Marcamos a seção quando ${n(X.parte2?.limites.cab_seq ?? 3)} ou mais eleitores assim votaram em sequência, ou ${n(X.parte2?.limites.cab_dia ?? 10)} ou mais no dia: ${plural(R.cabine.cabine_secoes, "seção", "seções")}. Eleitor de voto em trânsito (um cargo só) não entra na conta. Quem chega com os números anotados vota mais rápido; vários seguidos é o que chama atenção.`, "lista_cabine", (s) => !!((s.flags_p2 ?? 0) & 2),
+    { k: "cab6_lt25", rot: "Eleitores com menos de 25 s na cabine", num: true, html: (o) => `<span class="forte">${n(o.cab6_lt25)}</span><span class="sub">de ${n(o.cab6)}; ${o.cab6_seq25 >= 2 ? `${n(o.cab6_seq25)} seguidos às ${hora(o.cab6_seq25_ini)}` : "nenhum seguido"}; mediana ${n(o.cab6_med)} s</span>` }]);
   if (R.rapidos) blocos.push(["rapidos", "Votos muito rápidos em sequência", R.rapidos.com_metrica ? `Sequências de ${n(R.rapidos.minimo)} ou mais votos seguidos com menos de 30 segundos entre um e outro, em qualquer horário: ${plural(R.rapidos.secoes_sinal, "seção", "seções")}. Votar em todos os cargos costuma levar mais de um minuto; eleitores que já chegam com os números anotados votam mais rápido.` : "Esta medida precisa reprocessar os logs: <code>python baixar_logs.py --refazer</code> (usa os logs já baixados).", "lista_rapidos", (s) => (s.maior_seq_rapida ?? 0) >= 6,
     { k: "maior_seq_rapida", rot: "Maior sequência rápida", num: true, html: (o) => `<span class="forte">${n(o.maior_seq_rapida)} votos</span><span class="sub">${o.seq_rapida_inicio != null ? `a partir das ${hora(o.seq_rapida_inicio)}` : ""}</span>` }]);
   el.innerHTML = blocos.map(([id, t, txt]) => `<h3 style="margin:18px 0 6px">${t}</h3><p class="nota">${txt}</p><div id="t-${id}" style="margin-top:10px"></div>`).join("");
@@ -1492,6 +1504,12 @@ TELAS["como-ler"] = async (el) => {
       <li><strong>Leitor com defeito provável</strong>: ${p(D.brasil.meta.lib.defeito_taxa, 0)} ou mais de quem tem digital liberado pelo mesário, o dia todo ou a partir de alguma hora antes das 17h (com até ${p(D.brasil.meta.lib.defeito_antes, 0)} antes disso). Quase sempre é equipamento, e explica muitas seções com liberação manual alta.</li></ul>
     ${(() => { const T = D.brasil.total, t17 = div(T.man17, T.cad17), td = div(T.votos_manual - T.man17, T.votos_log - T.votos_sem_cadastro - T.cad17);
       return t17 != null && td != null ? `<p>No Brasil, depois das 17h, ${plural(T.man17, "eleitor com digital foi liberado", "eleitores com digital foram liberados")} pelo mesário (${p(t17)} de quem tinha digital nesse horário); antes das 17h, ${p(td)}. ${t17 < td ? "Ou seja, no país a liberação pelo mesário é proporcionalmente <em>menor</em> no fim do dia (de manhã votam mais idosos, que têm mais falha de digital). O que chama atenção é a seção que destoa disso." : "O que chama atenção é a seção que destoa muito da própria taxa durante o dia."}</p>` : ""; })()}` : ""}
+    ${D.brasil.meta.p2 ? (() => { const m = D.brasil.meta.p2, L = m.limites; return `<h2>Tag: sem digital cadastrada, mas com foto no cadastro</h2>
+    <p>Quem não tem digital cadastrada é liberado pelo ano de nascimento, sem conferência de digital. O log registra quando a urna mostra a foto do eleitor ao mesário. No Brasil, ${n(m.sd_foto)} dos ${n(m.sd)} eleitores sem digital (${p(div(m.sd_foto, m.sd))}) tinham foto no cadastro. Como foto e digital costumam ser colhidas juntas, marcamos a seção com <strong>${n(L.foto_min)} ou mais</strong> eleitores assim, quando são pelo menos ${p(L.foto_frac, 0)} dos sem digital: ${plural(m.foto_secoes, "seção", "seções")} em ${n(m.foto_municipios)} municípios.${m.excesso_secoes != null ? ` Em ${n(m.excesso_e_foto)} delas, além disso, votaram como "sem digital" pelo menos ${n(L.foto_min)} eleitores a mais do que o cadastro de julho registra sem biometria (a comparação só é feita onde o cadastro bate com o número de eleitores aptos).` : ""} Uma explicação possível é cadastro atualizado depois da preparação das urnas. É uma tag: não conta como critério.</p>
+    <h3>Liberações com o leitor funcionando</h3>
+    <p>No detalhe da seção mostramos quantas liberações pelo mesário aconteceram com o leitor reconhecendo a maioria dos eleitores em volta (pelo menos 8 dos 10 mais próximos com digital). No Brasil são ${n(m.man_leitor_ok)} de ${n(m.man)} (${p(div(m.man_leitor_ok, m.man), 0)}): a falha de digital é quase sempre de um eleitor isolado, mais comum entre idosos. Nas seções com leitor com defeito provável, esse número fica perto de zero.</p>
+    <h3>Tempo de cabine</h3>
+    <p>Para quem votou nos 6 cargos, medimos o tempo entre a liberação e o voto computado. A seção típica tem mediana de ${n(m.cab6_med)} segundos; ${n(m.cab6_lt25)} de ${n(m.cab6)} eleitores (${p(div(m.cab6_lt25, m.cab6), 2)}) ficaram menos de ${n(L.cab_piso)} segundos. O sinal aparece no detalhe quando ${n(L.cab_seq)} ou mais votaram assim em sequência, ou ${n(L.cab_dia)} ou mais no dia: ${plural(m.cabine_secoes, "seção", "seções")} no país. Substitui a medida antiga de “votos rápidos em sequência”, que se confundia com voto em trânsito.</p>`; })() : ""}
     ${D.brasil.meta.atip ? (() => { const m = D.brasil.meta.atip, T = D.brasil.total; return `<h2>Casos extremamente atípicos</h2>
     <p>A aba <a href="${link({ tela: "atipicos" })}">Casos extremamente atípicos</a> lista padrões raros no horário e na conta de votos da urna. São tags: <strong>não entram na contagem dos critérios</strong> e não mudam com o rigor. A lista começa pelas seções que reúnem mais de um padrão diferente (votos fora do log junto com urna que começou tarde contam como um só: é a mesma troca de urna).</p>
     <ul><li><strong>Votos fora do log</strong>: o comparecimento oficial tem ${n(m.fora_min)} votos ou mais que não aparecem no log publicado da urna. No Brasil: ${plural(T.atip_fora, "seção", "seções")}, ${n(T.fora_votos)} votos. A explicação comum é troca de urna durante o dia. Conferimos o boletim de urna e o registro dos votos dessas seções: os dois trazem todos os votos e batem com o resultado oficial; o que não foi publicado é o log da primeira urna.</li>
@@ -1502,7 +1520,7 @@ TELAS["como-ler"] = async (el) => {
     <h2>Sinais no log da urna</h2>
     <p>No detalhe de cada seção listamos fatos objetivos do log que ajudam a separar fila de algo estranho: urna parada antes das 17h e depois com votos, maioria dos votos tardios sem digital, ritmo muito rápido depois das 17h, sequências de liberações manuais, urna substituída, abertura atrasada e diferença entre o log e o comparecimento oficial.</p>
     <h2>Mais análises</h2>
-    <p>A aba <a href="${link({ tela: "mais" })}">Mais análises</a> junta outras fontes para dar tamanho e contexto aos destaques: se os votos das seções em atenção mudariam o resultado de alguma disputa, a idade dos eleitores de cada seção (que explica parte da abstenção e das falhas de digital), o cadastro comparado com a população do IBGE, a repetição entre eleições e entre turnos, o tipo do local de votação, os gastos de campanha com transporte e pessoal, rotas e fichas para os fiscais e outros sinais do log (votos antes das 8h, liberações manuais concentradas no fim do dia e votos muito rápidos em sequência). Nenhuma delas muda os três critérios.</p>
+    <p>A aba <a href="${link({ tela: "mais" })}">Mais análises</a> junta outras fontes para dar tamanho e contexto aos destaques: se os votos das seções em atenção mudariam o resultado de alguma disputa, a idade dos eleitores de cada seção (que explica parte da abstenção e das falhas de digital), o cadastro comparado com a população do IBGE, a repetição entre eleições e entre turnos, o tipo do local de votação, os gastos de campanha com transporte e pessoal, rotas e fichas para os fiscais e outros sinais do log (votos antes das 8h, liberações manuais concentradas no fim do dia e tempo de cabine muito curto). Nenhuma delas muda os três critérios.</p>
     <h2>Causas comuns para cada destaque</h2>
     <ul><li><strong>Abstenção baixa</strong>: seção nova, revisão recente do cadastro, comunidade pequena e mobilizada.</li>
       <li><strong>Votos após 17h</strong>: fila, problemas de biometria que deixam cada voto mais lento, urna substituída, abertura atrasada, relógio da urna adiantado.</li>
@@ -1552,6 +1570,7 @@ async function abrirSecao(s) {
     manual_tarde: `${plural(s.manual_16h, "liberação manual aconteceu", "liberações manuais aconteceram")} das 16h em diante, quando o esperado pelo horário dos votos seria cerca de ${n(s.manual_tarde_esperado)}. No fim do dia a mesa já sabe quem faltou.`,
     salto_17h: "Salto às 17h: durante o dia o leitor reconhecia a maioria dos eleitores; depois das 17h, a maior parte foi liberada pelo mesário.",
     leitor_defeito: s.defeito_desde > 8 ? `O leitor de digital passou a falhar com quase todos a partir das ${s.defeito_desde}h: provável defeito no equipamento.` : "O leitor de digital falhou com quase todos o dia todo: provável defeito no equipamento.",
+    cabine: `${plural(s.cab6_lt25, "eleitor votou", "eleitores votaram")} em todos os cargos ficando menos de ${n(D.brasil.meta.p2?.limites.cab_piso ?? 25)} segundos na cabine${s.cab6_seq25 >= 2 ? `, ${n(s.cab6_seq25)} deles seguidos a partir das ${hora(s.cab6_seq25_ini)}` : ""}. No país isso acontece com cerca de 1 em cada ${n(div(D.brasil.meta.p2?.cab6, D.brasil.meta.p2?.cab6_lt25))} eleitores${s.cab6_med != null ? `; a metade dos eleitores desta seção levou ${n(s.cab6_med)} segundos ou mais` : ""}.`,
     rapidos: `Houve ${n(s.maior_seq_rapida)} votos seguidos com menos de 30 segundos entre um e outro${s.seq_rapida_inicio != null ? `, a partir das ${hora(s.seq_rapida_inicio)}` : ""}. Votar em todos os cargos costuma levar mais de um minuto.`,
   }[k])).filter(Boolean);
 
@@ -1560,7 +1579,7 @@ async function abrirSecao(s) {
     <p class="onde"><strong>${esc(s.escola ?? "Local de votação não informado")}</strong><br>${esc([s.endereco, s.bairro, s.cep ? `CEP ${s.cep}` : null].filter(Boolean).join(", "))}${s.endereco || s.bairro ? "<br>" : ""}${esc(mun.mun_nome ?? "")} (${esc(s.uf)})</p>
     <div class="acoes"><a class="botao" href="${mapsUrl({ ...s, mun_nome: mun.mun_nome })}" target="_blank" rel="noopener">Abrir no mapa</a>
       <a class="botao" href="${link({ tela: "panorama", uf: s.uf, mun: s.cd_municipio, zona: s.zona })}" data-fechar>Ver a zona ${s.zona}</a></div>
-    <div style="margin:14px 0 16px">${c || temConc(s) ? selos(c | (temConc(s) ? 8 : 0)) : `<span class="nota">Não cumpre nenhum critério no rigor atual.</span>`}${temConc(s) ? ` <span class="sub" style="display:inline">voto concentrado é o 4º critério, opcional</span>` : ""}${atipDe(s).length ? ` ${selosDe(atipDe(s))}` : ""}</div>
+    <div style="margin:14px 0 16px">${c || temConc(s) ? selos(c | (temConc(s) ? 8 : 0)) : `<span class="nota">Não cumpre nenhum critério no rigor atual.</span>`}${temConc(s) ? ` <span class="sub" style="display:inline">voto concentrado é o 4º critério, opcional</span>` : ""}${tagsDe(s).length ? ` ${selosTags(s)}` : ""}</div>
     ${numeros([
       { rotulo: "Eleitores aptos", valor: n(s.aptos) },
       { rotulo: "Compareceram", valor: n(s.comparecimento), sub: p(1 - s.taxa_abstencao) },
@@ -1613,6 +1632,15 @@ function achadosExtras(s, mun) {
       <p>${selosDe(ka)}</p>${t.join("")}
       <p class="nota">Não é prova de irregularidade e não conta como critério. O caminho é pedir a ata da mesa receptora ao cartório da zona: ela registra troca de urna e fila.</p></div>`);
   }
+  const P2 = D.brasil.meta.p2;
+  if (P2 && s.sd_foto != null && (TAGS.foto.tem(s) || s.sd_foto >= 10)) {  // sem digital cadastrada, mas com foto
+    const sd = s.votos_sem_cadastro;
+    out.push(`<div class="achado ${TAGS.foto.tem(s) ? "cor-foto" : ""}"><h3>Sem digital cadastrada, mas com foto no cadastro</h3>
+      ${TAGS.foto.tem(s) ? `<p>${selosDe(["foto"])}</p>` : ""}
+      <p><strong>${n(s.sd_foto)} dos ${n(sd)} eleitores</strong> liberados sem digital cadastrada (${p(div(s.sd_foto, sd), 0)}) tinham foto no cadastro: a urna mostrou a foto ao mesário, mas não pediu a digital, e liberou pelo ano de nascimento. No Brasil, isso acontece com ${p(div(P2.sd_foto, P2.sd))} dos eleitores sem digital (${n(P2.sd_foto)} de ${n(P2.sd)}).</p>
+      ${s.sd_cadastro != null ? `<p>O cadastro de julho registra <strong>${plural(s.sd_cadastro, "eleitor", "eleitores")} sem biometria</strong> nesta seção; votaram como sem digital ${n(sd)}${s.sd_excesso > 0 ? `, <strong>${n(s.sd_excesso)} a mais</strong> do que o cadastro tem` : ""}.</p>` : ""}
+      <p class="nota">Foto e digital costumam ser colhidas juntas. Uma explicação possível é cadastro atualizado depois da preparação das urnas; o cartório eleitoral da zona pode confirmar. Não é prova de irregularidade e não conta como critério.</p></div>`);
+  }
   if (s.horas_man) {  // liberações pelo mesário hora a hora (horário de Brasília)
     const M = String(s.horas_man).split(" ").map(Number), C = String(s.horas_cad).split(" ").map(Number);
     const fx = D.brasil.meta.faixas;
@@ -1622,6 +1650,7 @@ function achadosExtras(s, mun) {
       ${ks.length ? `<p>${selosDe(ks)}</p>` : ""}
       <p>Eleitores com digital cadastrada liberados pelo mesário em cada hora (horário de Brasília). Depois das 17h: <strong>${n(s.man17)} de ${n(s.cad17)}</strong> (${p(div(s.man17, s.cad17))}); antes: ${n(s.man_dia)} de ${n(s.cad_dia)} (${p(div(s.man_dia, s.cad_dia))}).</p>
       <ul class="por-hora">${cel}</ul>
+      ${P2 && s.man_leitor_ok != null && s.votos_manual >= 5 ? `<p>Das ${n(s.votos_manual)} liberações, <strong>${n(s.man_leitor_ok)} (${p(div(s.man_leitor_ok, s.votos_manual), 0)})</strong> aconteceram com o leitor funcionando normalmente em volta: pelo menos 8 dos 10 eleitores com digital mais próximos foram reconhecidos. No Brasil são ${p(div(P2.man_leitor_ok, P2.man), 0)}. Quando o leitor está com defeito, esse número fica perto de zero; quando funciona, as falhas são de eleitores isolados, mais comuns entre idosos.</p>` : ""}
       <p class="nota">Leitor com defeito costuma falhar com quase todos de uma hora em diante. Fila com muitos idosos aumenta as liberações aos poucos. Uma virada brusca exatamente às 17h é o que mais pede um olhar na ata.</p></div>`);
   }
   const nomeMun = mun.mun_nome ?? "município";
