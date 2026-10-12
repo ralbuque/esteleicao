@@ -90,6 +90,18 @@ def conferir() -> int:
         fora = int((~m & k["sinais_cod"].str.contains(cod)).sum())
         caso(f"{tipo} -> sinal '{cod}'", int(m.sum()), int(k.loc[m, "sinais_cod"].str.contains(cod).sum()), fora,
              minimo=0.6 if tipo == "manual_tarde" else 1.0)
+    if "flags_lib" in k:
+        fl = k["flags_lib"]
+        m = k["tipo"] == "salto_17h"
+        caso("salto_17h -> tag 'salto às 17h'", int(m.sum()), int((bitc(fl, 3 + PADRAO) > 0)[m].sum()),
+             int(((bitc(fl, 3 + PADRAO) > 0) & ~m).sum()))
+        caso("salto_17h -> tag 'liberações depois das 17h'", int(m.sum()), int((bitc(fl, PADRAO) > 0)[m].sum()))
+        for tipo in ["leitor_quebrado", "leitor_quebra_14h"]:
+            m = k["tipo"] == tipo
+            caso(f"{tipo} -> 'leitor com defeito' e NÃO salto", int(m.sum()),
+                 int(((bitc(fl, 6) > 0) & (bitc(fl, 3 + PADRAO) == 0))[m].sum()))
+        m = k["tipo"] == "leitor_quebra_14h"
+        caso("leitor_quebra_14h -> defeito a partir das 14h", int(m.sum()), int(k.loc[m, "defeito_desde"].between(13, 15).sum()))
     if "perfil_explica" in k:
         m = k["tipo"] == "perfil_jovem"
         amplo_abst = bitc(k["flags"], 6) > 0

@@ -42,6 +42,7 @@ import pandas as pd
 import py7zr
 
 rng = np.random.default_rng(42)
+rng_lib = np.random.default_rng(2026)  # casos de liberação pelo mesário: sorteio à parte, não muda os outros casos
 PASTA = Path(__file__).parent / "dados"
 UFS = {"SP": 0.225, "CE": 0.153, "MG": 0.226, "MS": 0.238, "RJ": 0.233}
 FUSO = {"MS": -1}  # urnas do MS marcam 1h a menos (abrem às 7h locais)
@@ -87,6 +88,14 @@ def simular(n_eleitores, tipo, aptos, p_sem_cad, p_manual):
     if tipo == "manual_tarde":  # liberações manuais quase todas a partir das 16h
         tarde = votos >= 16 * 3600
         hab = np.where(tarde & (hab != 1), np.where(rng.random(len(hab)) < 0.8, 2, 0), np.where(hab == 2, 0, hab))
+    if tipo == "leitor_quebrado":  # leitor com defeito o dia todo: quase todos com digital liberados pelo mesário
+        hab = np.where(hab != 1, np.where(rng_lib.random(len(hab)) < 0.97, 2, 0), hab)
+    if tipo == "leitor_quebra_14h":  # leitor funcionou até as 14h e depois falhou com quase todos
+        hab = np.where((votos >= 14 * 3600) & (hab != 1), np.where(rng_lib.random(len(hab)) < 0.95, 2, 0), hab)
+    if tipo == "salto_17h":  # dia normal; depois das 17h, 25 eleitores quase todos liberados pelo mesário
+        tarde = 17 * 3600 + 60 + np.cumsum(rng_lib.integers(60, 100, 25))
+        votos = np.concatenate([votos[votos < 16.9 * 3600], tarde])
+        hab = np.concatenate([hab[: len(votos) - 25], np.where(rng_lib.random(25) < 0.9, 2, 0)])
     if tipo == "rapida":  # 25 votos seguidos com 12 a 25 s entre eles, às 14h
         bloco = 14 * 3600 + np.cumsum(rng.integers(12, 26, 25))
         votos = np.sort(np.concatenate([votos[(votos < 14 * 3600) | (votos > bloco[-1] + 60)][: len(votos) - 25], bloco]))
@@ -235,6 +244,12 @@ def main():
     for j in rng.choice(normais, 4, replace=False):
         df.loc[j, "s70"] = 0.55
         df.loc[j, "tipo"] = "idosos"
+    # liberações pelo mesário ao longo do dia: sorteio e coluna à parte ("lib"), para não mudar
+    # os outros casos (a seção continua "normal" para os sorteios seguintes)
+    df["lib"] = ""
+    for tipo, qtd in [("leitor_quebrado", 5), ("leitor_quebra_14h", 5), ("salto_17h", 6)]:
+        normais = df.index[(df["tipo"] == "normal") & (df["lib"] == "") & (df["QT_APTOS"] > 200)]
+        df.loc[rng_lib.choice(normais, qtd, replace=False), "lib"] = tipo
 
     # locais de votação (formato do arquivo do TSE "Eleitorado por local de votação"),
     # com endereço e coordenadas inventados perto do centro do município
@@ -280,7 +295,7 @@ def main():
             comparec = r.QT_APTOS - int(r.QT_APTOS * 0.12)
             df.at[r.Index, "QT_ABSTENCOES"] = r.QT_APTOS - comparec
         p_manual = float(np.clip(rng.normal(0.08, 0.025) + 0.4 * (r.s70 - 0.12), 0.01, 0.4))
-        votos, hab = simular(comparec, r.tipo, r.QT_APTOS, r.p_sem_cad, p_manual)
+        votos, hab = simular(comparec, r.lib or r.tipo, r.QT_APTOS, r.p_sem_cad, p_manual)
         nome = f"o00999-{r.CD_MUNICIPIO:05d}{r.NR_ZONA:04d}{r.NR_SECAO:04d}"
         texto = montar_log(r.CD_MUNICIPIO, r.NR_ZONA, r.NR_SECAO, votos, hab, FUSO.get(r.SG_UF, 0), 2000000 + i)
         pendentes.append((r.SG_UF, nome, texto))
@@ -308,7 +323,8 @@ def main():
     df["ANO_ELEICAO"] = 1999
     t2 = segundo_turno(df)
     gravar_detalhe(PASTA / "teste_detalhe_votacao_secao.zip", 1999, [(df, 1, CARGOS), (t2, 2, CARGOS[:2])])
-    df[["SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_SECAO", "tipo"]].to_csv(PASTA / "teste_gabarito.csv", index=False)
+    df.assign(tipo=df["lib"].where(df["lib"] != "", df["tipo"]))[["SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_SECAO", "tipo"]] \
+        .to_csv(PASTA / "teste_gabarito.csv", index=False)
     print(f"\n{len(df):,} seções sintéticas -> dados/teste_detalhe_votacao_secao.zip (1º e 2º turno) "
           "e dados/teste_arqurna_*.zip")
     gerar_fontes_extras(df, coords, agregadas)
@@ -319,7 +335,7 @@ def gravar_detalhe(saida: Path, ano: int, conjuntos):
     partes = []
     for base, turno, cargos in conjuntos:
         for cd, ds in cargos:
-            d = base.drop(columns=["tipo", "p_sem_cad", "s70", "s16"], errors="ignore").copy()
+            d = base.drop(columns=["tipo", "lib", "p_sem_cad", "s70", "s16"], errors="ignore").copy()
             d["NR_TURNO"], d["ANO_ELEICAO"], d["CD_CARGO"], d["DS_CARGO"] = turno, ano, cd, ds
             partes.append(d)
     tudo = pd.concat(partes)

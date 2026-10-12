@@ -276,7 +276,7 @@ SOMAS = ["aptos", "comparecimento", "abstencoes", "votos_log", "votos_apos_17", 
          "votos_sem_cadastro", "votos_digital", "com_log", "com_17h"]
 # somas que só existem quando a fonte opcional foi baixada (Mais análises)
 SOMAS_OPC = ["eleitores_perfil", "el_70_mais", "el_16_17", "el_biometria", "transf_recebidos",
-             "votos_antes_8", "manual_16h"]
+             "votos_antes_8", "manual_16h", "man17", "cad17"]
 
 
 def preparar(df: pd.DataFrame) -> pd.DataFrame:
@@ -307,6 +307,13 @@ def agregar(df: pd.DataFrame, por: list[str]) -> pd.DataFrame:
         if "flags_conc" in df:
             i = list(NIVEIS).index(nome)
             a[f"{nome}_conc"] = extras.bit(df["flags_conc"], i).groupby([df[c] for c in por], observed=True).sum()
+        if "flags_lib" in df:
+            i = list(NIVEIS).index(nome)
+            chaves = [df[c] for c in por]
+            a[f"{nome}_lib17"] = extras.bit(df["flags_lib"], i).groupby(chaves, observed=True).sum()
+            a[f"{nome}_salto"] = extras.bit(df["flags_lib"], 3 + i).groupby(chaves, observed=True).sum()
+    if "flags_lib" in df:
+        a["defeito"] = extras.bit(df["flags_lib"], extras.BIT_DEFEITO).groupby([df[c] for c in por], observed=True).sum()
     return a.reset_index()
 
 
@@ -316,6 +323,9 @@ def cols_agg(df: pd.DataFrame) -> dict:
     c.update({k: 0 for k in SOMAS_OPC if k in df})
     if "flags_conc" in df:
         c.update({f"{n}_conc": 0 for n in NIVEIS})
+    if "flags_lib" in df:
+        c.update({f"{n}_{k}": 0 for n in NIVEIS for k in ["lib17", "salto"]})
+        c["defeito"] = 0
     return c
 
 
@@ -341,7 +351,7 @@ def prioridade(g: pd.DataFrame) -> pd.Series:
     ncrit = (f & 1).astype(bool).astype(int) + (f & 2).astype(bool).astype(int) + (f & 4).astype(bool).astype(int)
     forte = (g["z_ajustado"] <= -5) | (g["z_manual"].fillna(0) >= 5) | \
             ((g["pct_apos_17"].fillna(0) >= 0.30) & (g["votos_apos_17"].fillna(0) >= 30))
-    sinal = g["sinais_cod"].str.contains("ociosa|sem_bio_17h|seq_manual|ritmo_17h", regex=True)
+    sinal = g["sinais_cod"].str.contains("ociosa|sem_bio_17h|seq_manual|ritmo_17h|salto_17h", regex=True)
     return pd.Series({
         "multi": int((ncrit >= 2).sum()),
         "forte": int((forte & (f > 0)).sum()),
@@ -406,6 +416,8 @@ OPC_LISTA = {
     "votos_antes_8": 0, "manual_16h": 0, "z_manual_tarde": 2, "maior_seq_rapida": 0, "seq_rapida_inicio": 3,
     "dif_comp_turnos": 4, "z_comp_turnos": 2, "comp_sobe_turno": 0, "taxa_comp_t1": 4, "taxa_comp_t2": 4,
     "apos17_so_t2": 0, "manual_tarde_esperado": 1,
+    "flags_lib": 0, "man17": 0, "cad17": 0, "man_dia": 0, "cad_dia": 0, "defeito_desde": 0,
+    "horas_man": None, "horas_cad": None,
 }
 OPC_DETALHE = {
     **OPC_LISTA, "eleitores_perfil": 0, "el_70_mais": 0, "el_16_17": 0, "el_biometria": 0, "pct_biometria": 3,
@@ -520,6 +532,12 @@ def main():
     faixas = faixas_brasilia(df, "h")
     faixas_sd = faixas_brasilia(df, "s")
     faixas_man = faixas_brasilia(df, "m")
+    # liberações pelo mesário hora a hora: tags "depois das 17h", "salto às 17h" e "leitor com defeito"
+    df = extras.liberacoes(df, faixas_man, faixas - faixas_sd + faixas_man, NIVEIS)
+    rel["liberacoes"] = extras.resumo_liberacoes(df, NIVEIS)
+    for cod, b in [("salto_17h", None), ("leitor_defeito", extras.BIT_DEFEITO)]:
+        m = (extras.bit(df["flags_lib"], b) > 0) if b is not None else (extras.bit(df["flags_lib"], 3 + list(NIVEIS).index("padrao")) > 0)
+        df["sinais_cod"] = df["sinais_cod"].where(~m, df["sinais_cod"] + np.where(df["sinais_cod"] == "", "", ",") + cod)
     print(f"  {len(df):,} seções, {int(df['tem_log'].sum()):,} com log ({time.time() - t0:.0f}s)")
 
     saida: Path = a.saida
@@ -555,6 +573,8 @@ def main():
     brasil = {
         "meta": {**meta, "gerado_em": datetime.now().isoformat(timespec="minutes"),
                  "niveis": NIVEIS, "min_aptos_abst": MIN_APTOS_ABST, "min_votos_17": MIN_VOTOS_17,
+                 "lib": {"limites": extras.LIB, "salto_min": extras.SALTO_MIN, "defeito_taxa": extras.DEFEITO_TAXA,
+                         "defeito_antes": extras.DEFEITO_ANTES} if "flags_lib" in df else None,
                  "faixas": FAIXAS},
         "total": {k: _num(br[k], 0) for k in CA},
         "ufs": tabela(uf, {"uf": None, **CA}),
@@ -570,7 +590,9 @@ def main():
     # ---- seções sinalizadas por UF (no nível mais amplo; o site filtra pelos outros níveis)
     # (+ as de voto concentrado no nível amplo, o 4º critério opcional)
     conc_amplo = extras.bit(df["flags_conc"], 2).astype(bool) if "flags_conc" in df else False
-    cand = df[(df["f_amplo"] > 0) | conc_amplo].copy()
+    lib_amplo = ((df["flags_lib"].fillna(0).astype("int64") & ((1 << 2) | (1 << 5) | (1 << extras.BIT_DEFEITO))) > 0) \
+        if "flags_lib" in df else False
+    cand = df[(df["f_amplo"] > 0) | conc_amplo | lib_amplo].copy()
     CL = com_opcionais(df, COLS_SECAO_LISTA, OPC_LISTA)
     hor = faixas[df.index.get_indexer(cand.index)] if len(cand) else np.zeros((0, len(FAIXAS)))
     cand["horas"] = [" ".join(map(str, r)) for r in hor]

@@ -27,6 +27,10 @@
   --c-man-claro: #ebe2f6;
   --c-conc: #8a6a00;         /* voto concentrado (4º critério, opcional) */
   --c-conc-claro: #f5ecc8;
+  --c-salto: #b42318;         /* tag: salto às 17h */
+  --c-salto-claro: #fde4e1;
+  --c-defeito: #5f6b6c;       /* tag: leitor com defeito provável */
+  --c-defeito-claro: #e6eaea;
   --mapa-0: #e3e8e4;
   --mapa-1: #fbe3cc;
   --mapa-2: #f6c08f;
@@ -57,6 +61,10 @@
     --c-man-claro: #33264a;
     --c-conc: #e0c060;
     --c-conc-claro: #3d3415;
+    --c-salto: #ff8a7a;
+    --c-salto-claro: #4a1a14;
+    --c-defeito: #b5c1c1;
+    --c-defeito-claro: #2a3637;
     --confirma: #5cc48a;
     --mapa-0: #233335;
     --mapa-1: #8a4a1f;
@@ -150,6 +158,9 @@ main { padding-top: 28px; padding-bottom: 48px; outline: none; min-height: 60vh;
 .cor-17h { --cor: var(--c-17h); --cor-claro: var(--c-17h-claro); }
 .cor-man { --cor: var(--c-man); --cor-claro: var(--c-man-claro); }
 .cor-conc { --cor: var(--c-conc); --cor-claro: var(--c-conc-claro); }
+.cor-lib17 { --cor: var(--c-17h); --cor-claro: var(--c-17h-claro); }
+.cor-salto { --cor: var(--c-salto); --cor-claro: var(--c-salto-claro); }
+.cor-defeito { --cor: var(--c-defeito); --cor-claro: var(--c-defeito-claro); }
 
 .selo { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px 2px 6px; border-radius: 99px; font-size: .8rem; font-weight: 600; background: var(--cor-claro); color: var(--cor); white-space: nowrap; }
 .selo::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--cor); }
@@ -249,6 +260,16 @@ button:hover, .botao:hover { border-color: var(--tinta-3); }
 .achado { background: var(--superficie); border-left: 5px solid var(--cor, var(--tinta-3)); border-radius: 0 var(--raio) var(--raio) 0; padding: 14px 16px; margin-top: 12px; }
 .achado h3 { color: var(--cor, var(--tinta)); font-size: 1rem; margin-bottom: 4px; }
 .achado p + p { margin-top: 6px; }
+.filtros-tags { padding: 8px 12px; background: var(--superficie); border: 1px dashed var(--linha); border-radius: var(--raio); }
+.filtros-tags .rotulo-tags { font-weight: 600; font-size: .92rem; }
+.filtros-tags .rotulo-tags .sub { font-weight: 400; color: var(--tinta-2); }
+td .selos { margin-top: 4px; }
+.por-hora { list-style: none; padding: 0; margin: 10px 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.por-hora li { display: flex; flex-direction: column; min-width: 64px; padding: 6px 8px; border: 1px solid var(--linha); border-radius: var(--raio); font-size: .85rem; background: var(--papel); }
+.por-hora li .h { color: var(--tinta-2); font-size: .78rem; }
+.por-hora li .v { font-weight: 600; font-variant-numeric: tabular-nums; }
+.por-hora li.tarde { border-color: var(--c-17h); }
+.por-hora li.alta { background: var(--cor-claro, var(--c-salto-claro)); color: var(--cor, var(--c-salto)); }
 .achado .intensidade { font-size: .85rem; color: var(--tinta-2); }
 ul.sinais { margin: 8px 0 0; padding-left: 20px; }
 ul.sinais li + li { margin-top: 4px; }

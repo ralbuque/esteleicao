@@ -47,6 +47,18 @@ SEQ_RAPIDA = 10            # 10+ votos seguidos com menos de 30 s entre eles
 ANTES_8H_SINAL = 3         # votos antes das 8h que viram sinal
 TURNOS_Z, TURNOS_DIF = 4.0, 0.10   # comparecimento que sobe muito entre os turnos
 RAIO_ROTA_KM = 2.0
+# liberações pelo mesário depois das 17h (tags: não entram na contagem dos critérios)
+LIB = {  # min17 = liberações depois das 17h; salto = quanto a taxa depois das 17h passa a do dia
+    "rigoroso": dict(min17=20, salto=0.50),
+    "padrao": dict(min17=10, salto=0.40),
+    "amplo": dict(min17=5, salto=0.30),
+}
+SALTO_MIN = 10              # salto às 17h: pelo menos 10 liberações depois das 17h
+SALTO_ANTES_FOLGA = 0.15    # das 14h às 16h a taxa não pode já ter subido mais que isso (senão começou antes)
+DEFEITO_TAXA = 0.80         # leitor com defeito provável: 80%+ de quem tem digital liberado pelo mesário
+DEFEITO_ANTES = 0.30        # ... e, se começou no meio do dia, até 30% antes disso
+DEFEITO_MIN = 20            # ... com pelo menos 20 eleitores com digital no período ruim
+BIT_DEFEITO = 6             # flags_lib: bits 0-2 depois das 17h, 3-5 salto às 17h (por nível), 6 leitor com defeito
 
 
 def bit(s: pd.Series, i: int) -> pd.Series:
@@ -659,3 +671,77 @@ def rotas(esc: pd.DataFrame, raio_km: float = RAIO_ROTA_KM) -> pd.DataFrame:
                 esc.loc[idx, "rota_ordem"] = pos
                 esc.loc[idx, "rota_km"] = round(km, 2)
     return esc
+
+
+# ================================================================ liberações pelo mesário por hora
+def liberacoes(df: pd.DataFrame, manual: np.ndarray, cadastrados: np.ndarray, niveis) -> pd.DataFrame:
+    """Tags sobre as liberações pelo mesário ao longo do dia (não mudam os 3 critérios).
+    manual e cadastrados: por seção e faixa de horário de Brasília (8h ... 16h, 17h, 18h+), como
+    gerar_site.faixas_brasilia. Grava em df:
+      man17, cad17          liberações pelo mesário e eleitores com digital depois das 17h
+      man_dia, cad_dia      o mesmo até as 17h
+      defeito_desde         hora em que o leitor passou a falhar com quase todos (8 = o dia todo)
+      flags_lib             bits 0-2: 'depois das 17h' por nível; 3-5: 'salto às 17h' por nível;
+                            bit 6: leitor com defeito provável
+      horas_man, horas_cad  as faixas, para o cartão hora a hora do detalhe da seção"""
+    M = np.asarray(manual, dtype=float)
+    C = np.asarray(cadastrados, dtype=float)
+    tem = df["tem_log"].to_numpy(dtype=bool) if "tem_log" in df else C.sum(1) > 0
+    m17, c17 = M[:, 9:].sum(1), C[:, 9:].sum(1)
+    md, cd = M[:, :9].sum(1), C[:, :9].sum(1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tx17 = np.where(c17 > 0, m17 / c17, np.nan)
+        txd = np.where(cd > 0, md / cd, np.nan)
+        tx_cedo = np.where(C[:, :6].sum(1) > 0, M[:, :6].sum(1) / C[:, :6].sum(1), np.nan)  # 8h às 13h
+        tx_pre = np.where(C[:, 6:9].sum(1) > 0, M[:, 6:9].sum(1) / C[:, 6:9].sum(1), np.nan)  # 14h às 16h
+
+    # leitor com defeito provável: o dia todo, ou a partir de uma hora até as 16h (depois disso é "salto")
+    desde = np.full(len(df), np.nan)
+    tot_m, tot_c = M.sum(1), C.sum(1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        todo = (tot_c >= DEFEITO_MIN) & (tot_m / tot_c >= DEFEITO_TAXA)
+    desde[todo] = 8
+    for j in range(1, 9):  # começou às 9h, 10h ... 16h
+        ma, ca = M[:, j:].sum(1), C[:, j:].sum(1)
+        mb, cb = M[:, :j].sum(1), C[:, :j].sum(1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ok = (ca >= DEFEITO_MIN) & (ma / ca >= DEFEITO_TAXA) & (cb >= 10) & (mb / cb <= DEFEITO_ANTES)
+        desde = np.where(np.isnan(desde) & ok, 8 + j, desde)
+    defeito = ~np.isnan(desde) & tem
+
+    flags = np.zeros(len(df), dtype=np.int64)
+    for i, nome in enumerate(niveis):
+        p = LIB[nome]
+        apos = tem & (m17 >= p["min17"])
+        with np.errstate(invalid="ignore"):
+            salto = (tem & ~defeito & (m17 >= SALTO_MIN) & (tx17 - np.nan_to_num(txd) >= p["salto"])
+                     & (tx17 >= 2 * np.nan_to_num(txd))
+                     & ~(np.nan_to_num(tx_pre) > np.nan_to_num(tx_cedo) + SALTO_ANTES_FOLGA))
+        flags |= apos.astype(np.int64) << i
+        flags |= salto.astype(np.int64) << (3 + i)
+    flags |= defeito.astype(np.int64) << BIT_DEFEITO
+    df["man17"] = np.where(tem, m17, np.nan)
+    df["cad17"] = np.where(tem, c17, np.nan)
+    df["man_dia"] = np.where(tem, md, np.nan)
+    df["cad_dia"] = np.where(tem, cd, np.nan)
+    df["defeito_desde"] = np.where(defeito, desde, np.nan)
+    df["flags_lib"] = flags
+    df["horas_man"] = [" ".join(str(int(x)) for x in r) for r in M]
+    df["horas_cad"] = [" ".join(str(int(x)) for x in r) for r in C]
+    return df
+
+
+def resumo_liberacoes(df: pd.DataFrame, niveis) -> dict:
+    if "flags_lib" not in df:
+        return {}
+    f = df["flags_lib"].fillna(0).astype("int64")
+    out = {"limites": LIB, "salto_min": SALTO_MIN, "defeito_taxa": DEFEITO_TAXA,
+           "man17": int(df["man17"].fillna(0).sum()), "cad17": int(df["cad17"].fillna(0).sum()),
+           "man_dia": int(df["man_dia"].fillna(0).sum()), "cad_dia": int(df["cad_dia"].fillna(0).sum()),
+           "defeito": int(bit(f, BIT_DEFEITO).sum()),
+           "defeito_dia_todo": int((df["defeito_desde"] == 8).sum())}
+    for i, nome in enumerate(niveis):
+        a, s = bit(f, i) > 0, bit(f, 3 + i) > 0
+        out[nome] = {"apos17": int(a.sum()), "apos17_lib": int(df.loc[a, "man17"].sum()),
+                     "salto": int(s.sum()), "salto_lib": int(df.loc[s, "man17"].sum())}
+    return out
