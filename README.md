@@ -75,6 +75,13 @@ Se o download falhar, baixe manualmente o arquivo **"Detalhe da apuração por
 seção eleitoral"** em <https://dadosabertos.tse.jus.br/dataset/resultados-2026>
 e use `--zip`.
 
+Testes do critério "salto sem digital às 16h+" (sem dados, ou com os logs já processados):
+
+```bash
+python testar_fim_do_dia.py
+python testar_fim_do_dia.py --plantar BA --resumo --bruto 3
+```
+
 Para testar sem baixar nada (dados inventados, com anomalias plantadas):
 
 ```bash
@@ -95,21 +102,22 @@ Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md): `python deploy/empaco
 - **Comparar**: média ± desvio padrão de cada subunidade (UFs, municípios, zonas ou locais de votação). Com muitos municípios, vira um gráfico média × desvio padrão onde quem destoa do grupo aparece isolado.
 - **Distribuição**: histograma das seções com linhas de média, ±1 e ±2 desvios.
 - **Funil**: abstenção × tamanho da seção, com limites de ±2 e ±3 desvios esperados para cada tamanho.
-- **Sinalizadas**: seções que cumprem pelo menos 1, 2 ou os 3 critérios abaixo (escolha na barra lateral), ordenadas pelo número de critérios e pela gravidade; exportável em CSV; clicar numa linha abre o detalhe.
+- **Sinalizadas**: seções que cumprem pelo menos 1, 2, 3 ou os 4 critérios abaixo (escolha na barra lateral), ordenadas pelo número de critérios e pela gravidade; exportável em CSV; clicar numa linha abre o detalhe.
 - **Horário dos votos**: % dos votos em cada hora, hora média por subunidade (média ± desvio), distribuição por seção e lista das seções com mais votos após 17h.
 - **Sem digital**: % de eleitores liberados sem digital hora a hora (separando "sem cadastro" de "liberação manual"), média ± desvio por subunidade, gráfico proporção × tamanho da seção e lista das seções acima do esperado.
-- **Cruzamento**: escolha na barra lateral quais critérios precisam valer ao mesmo tempo (abstenção baixa, votação tardia, muitos sem digital, liberação manual alta). Cada seção vira um ponto; as que passam em todos os critérios ficam destacadas e listadas com os sinais encontrados no log.
+- **Cruzamento**: escolha na barra lateral quais critérios precisam valer ao mesmo tempo (abstenção baixa, votação tardia, muitos sem digital, liberação manual alta, salto sem digital às 16h+). Cada seção vira um ponto; as que passam em todos os critérios ficam destacadas e listadas com os sinais encontrados no log.
 - **Detalhe da seção**: seção vs zona, município, UF e Brasil; percentis; abstenções esperadas; perfil hora a hora comparado com as outras seções da mesma escola e com o município; e as outras seções do **mesmo local de votação**.
 
 ## Como uma seção é sinalizada
 
-A aba **Sinalizadas** procura só três padrões (abstenção ALTA não é sinalizada):
+A aba **Sinalizadas** procura só quatro padrões (abstenção ALTA não é sinalizada):
 
 | Critério | Regra padrão (ajustável na barra lateral) |
 |---|---|
 | 🔻 Abstenção baixa | z da abstenção ≤ −3 (abaixo do esperado para o município) e ≥ 50 aptos |
 | ⏰ Voto após 17h | ≥ 15% dos votos depois das 17h, com pelo menos 10 votos; por padrão só conta se a hora média da seção for 30+ min mais tarde que a das outras seções da mesma escola (escola inteira tarde = fila) |
 | 🖐️ Liberação manual | z da liberação manual pelo mesário (entre eleitores com digital cadastrada) ≥ 3 e pelo menos 5 casos |
+| 🌆 Salto sem digital às 16h+ | a seção libera sem digital, a partir das 16h, bem mais eleitores do que ela mesma liberava antes das 16h: z ≥ 3, pelo menos 8 votos a mais que o esperado e o leitor ainda reconhecendo 25%+ de quem tem digital (ver abaixo) |
 
 Em UFs sem logs baixados, só a abstenção pode ser avaliada. Abaixo, o detalhe
 de como o z da abstenção é calculado:
@@ -188,6 +196,45 @@ manuais legítimas, e a ata da seção deve registrar isso. O indicador mais
 específico é a **liberação manual**, muito acima do município, **em sequência**,
 numa seção que destoa das outras da mesma escola, e se possível junto com
 abstenção baixa e/ou votos após as 17h.
+
+## Salto sem digital a partir das 16h
+
+É o sinal do voto no lugar de um eleitor que faltou: a pessoa vota normalmente e
+volta no fim do dia para votar por um ausente. Com a urna biométrica, quem vota
+no lugar de outro não passa na digital dele, então esse voto só sai como "sem
+cadastro" (o ausente não tinha digital) ou como liberação manual pelo mesário
+(o ausente tinha digital). O esquema muda a **composição** dos votos do fim do
+dia.
+
+Cada seção é comparada com ela mesma:
+
+| Medida | O que é |
+|---|---|
+| % sem digital antes das 16h / a partir das 16h | proporção de eleitores liberados sem digital (sem cadastro + manual) em cada período, em horário de Brasília |
+| excesso | votos sem digital a partir das 16h acima do esperado pela taxa da própria seção antes das 16h |
+| z do salto | z binomial do excesso, padronizado por UF (mediana e MAD), porque o fim do dia tem perfil próprio |
+| leitor ok | entre quem tem digital, pelo menos 25% reconhecidos no fim do dia (descarta leitor com defeito) |
+| déficit de abstenção | abstenções esperadas menos observadas (as que "faltaram") |
+| votos em jogo | o menor valor entre o déficit de abstenção e o excesso |
+
+Por que comparar com a própria seção: fila às 17h não muda a composição (é o
+mesmo público do dia), idosos costumam votar cedo e leitor com defeito falha
+para quase todos. Também não depende da média do município, que cairia junto
+se um esquema cobrisse o município inteiro.
+
+Testes (`python testar_fim_do_dia.py --plantar BA --resumo --bruto 3`):
+
+- casos construídos: fila às 17h, leitor que quebra às 16h e idosos votando cedo
+  não são sinalizados; uma seção com 18 votos trocados é;
+- esquema plantado em 1.000 seções reais da BA: detecta 52% das seções com 10
+  votos trocados, 83% com 15 e 97% com 30; com 5 ou menos, quase nada;
+- conferência voto a voto com o log bruto do TSE das seções com maior excesso.
+
+A abstenção entra só como coerência (déficit cobrindo o excesso): a variação
+natural da abstenção entre seções (cerca de 10 votos numa seção de 330) é do
+mesmo tamanho de um esquema pequeno. Explicações comuns para o salto: leitor
+que falhou por um tempo e eleitores sem digital cadastrada que deixaram para
+votar no fim do dia. A ata da seção ajuda a separar esses casos.
 
 ## Como interpretar (importante)
 
