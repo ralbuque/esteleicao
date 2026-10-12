@@ -736,13 +736,22 @@ const colCrit = { k: "crit", rot: "Critérios", ord: (o) => ncrit(critX(o, true)
 async function maisMaterialidade(el, nota, X, P) {
   const linhas = (X.materialidade || []).filter((r) => r.escopo === "BR" || !E.uf || r.escopo === E.uf);
   if (!linhas.length) { el.innerHTML = semDados("Falta a votação por seção. Rode <code>python baixar_votacao.py</code> e gere o site de novo."); return; }
-  nota.innerHTML = `Para cada disputa, a diferença entre o 1º e o 2º colocado ao lado dos votos que estão nas seções em atenção (rigor ${{ rigoroso: "rigoroso", padrao: "padrão", amplo: "amplo" }[E.nivel]}). <strong>Comparecimento acima do esperado</strong> é quantos eleitores a mais votaram nessas seções do que o padrão do município faria esperar. Os três números podem contar a mesma pessoa (um voto depois das 17h liberado pelo mesário entra em dois), então a soma é um teto.${E.mun ? " A tabela mostra o estado inteiro." : ""}`;
-  const margem = (r) => (r.vagas === 2 && r.dif_ultima_vaga != null ? r.dif_ultima_vaga : r.dif_1_2);
+  nota.innerHTML = `Para cada disputa, a diferença de votos que decidiu o resultado ao lado dos votos que estão nas seções em atenção (rigor ${{ rigoroso: "rigoroso", padrao: "padrão", amplo: "amplo" }[E.nivel]}). <strong>Comparecimento acima do esperado</strong> é quantos eleitores a mais votaram nessas seções do que o padrão do município faria esperar. Os três números podem contar a mesma pessoa (um voto depois das 17h liberado pelo mesário entra em dois), então a soma é um teto.${E.mun ? " A tabela mostra o estado inteiro." : ""}`;
+  // a diferença que decidiu: no Senado com 2 vagas, a última vaga; no 1º turno de Governador e Presidente,
+  // a maioria dos válidos (venceu direto ou não) e, se houve 2º turno, quem foi para ele (2º × 3º)
+  const decisiva = (r) => {
+    if (r.vagas === 2 && r.dif_ultima_vaga != null) return { v: r.dif_ultima_vaga, rot: "até a última vaga", txt: "a diferença para o 3º colocado (última vaga) foi" };
+    if (r.falta_maioria == null) return { v: r.dif_1_2, rot: "do 1º para o 2º", txt: "a diferença para o 2º colocado foi" };
+    if (r.falta_maioria <= 0) return { v: 1 - r.falta_maioria, rot: "acima da metade", txt: "o 1º colocado venceu sem 2º turno com uma folga, acima da metade dos votos válidos, de" };
+    if (r.dif_2_3 != null && r.dif_2_3 < r.falta_maioria) return { v: r.dif_2_3, rot: "do 2º para o 3º", txt: "houve 2º turno; a diferença entre o 2º e o 3º colocado, que decidiu quem foi para o 2º turno, foi" };
+    return { v: r.falta_maioria, rot: "faltou para a metade", txt: "houve 2º turno; faltaram ao 1º colocado, para vencer sem 2º turno," };
+  };
+  const margem = (r) => decisiva(r).v;
   const soma = (r) => r[P].v17 + r[P].manual + r[P].excesso;
   const frase = (r) => {
     const a = r[P];
     const m = margem(r);
-    let t = `Nas seções em atenção houve ${plural(a.v17, "voto", "votos")} depois das 17h; a diferença para o ${r.vagas === 2 ? "3º colocado (última vaga)" : "2º colocado"} foi ${plural(m, "voto", "votos")}.`;
+    let t = `Nas seções em atenção houve ${plural(a.v17, "voto", "votos")} depois das 17h; ${decisiva(r).txt} ${plural(m, "voto", "votos")}.`;
     if (!a.secoes) return `Nenhuma seção em atenção neste recorte; a diferença foi ${plural(m, "voto", "votos")}.`;
     t += soma(r) >= m
       ? ` <strong>Somando votos após 17h, liberações manuais e comparecimento acima do esperado (${n(soma(r))}), o total passa da diferença:</strong> numa disputa tão apertada, essas seções merecem prioridade na fiscalização.`
@@ -752,8 +761,8 @@ async function maisMaterialidade(el, nota, X, P) {
   tabela(el, {
     colunas: [
       { k: "disputa", rot: "Disputa", html: (o) => `<span class="forte">${o.rotulo}</span><span class="sub">${o.escopo === "BR" ? "Brasil" : NOMES_UF[o.escopo]}${o.vagas === 2 ? ", 2 vagas" : ""}</span>`, ord: (o) => o.cargo * 100 + (o.escopo === "BR" ? 0 : 1), csv: (o) => `${o.rotulo} ${o.escopo}` },
-      { k: "cands", rot: "Mais votados", semOrdem: true, classe: "cands", html: (o) => o.candidatos.slice(0, o.vagas + 1).map((c, i) => `<span class="${i ? "sub" : "forte"}">${i + 1}º ${esc(nomeCand(c.nome))}: ${n(c.votos)} (${p(div(c.votos, o.validos))})</span>`).join(""), csv: (o) => o.candidatos.slice(0, o.vagas + 1).map((c) => `${c.nome} ${c.votos}`).join(" | ") },
-      { k: "margem", rot: "Diferença", num: true, ord: margem, html: (o) => `<span class="forte">${n(margem(o))}</span><span class="sub">${p(div(margem(o), o.validos), 2)} dos válidos</span>`, csv: margem },
+      { k: "cands", rot: "Mais votados", semOrdem: true, classe: "cands", html: (o) => o.candidatos.slice(0, o.vagas + (o.falta_maioria > 0 ? 2 : 1)).map((c, i) => `<span class="${i ? "sub" : "forte"}">${i + 1}º ${esc(nomeCand(c.nome))}: ${n(c.votos)} (${p(div(c.votos, o.validos))})</span>`).join(""), csv: (o) => o.candidatos.slice(0, o.vagas + 1).map((c) => `${c.nome} ${c.votos}`).join(" | ") },
+      { k: "margem", rot: "Diferença", num: true, ord: margem, html: (o) => `<span class="forte">${n(margem(o))}</span><span class="sub">${p(div(margem(o), o.validos), 2)} dos válidos</span><span class="sub">${decisiva(o).rot}</span>`, csv: margem },
       { k: "atencao", rot: "Nas seções em atenção", ord: soma, html: (o) => `<span class="forte">${plural(o[P].secoes, "seção", "seções")}</span><span class="sub">${n(o[P].v17)} votos após 17h</span><span class="sub">${n(o[P].manual)} liberações manuais</span><span class="sub">${n(o[P].excesso)} acima do comparecimento esperado</span>`, csv: (o) => o[P].secoes },
       { k: "v17", rot: "Votos após 17h nelas", oculto: true, csv: (o) => o[P].v17 },
       { k: "man", rot: "Liberações manuais nelas", oculto: true, csv: (o) => o[P].manual },
@@ -830,7 +839,18 @@ async function maisCadastro(el, nota, X, P) {
   const temPop = ms.some((m) => m.razao_pop != null), temCresc = ms.some((m) => m.cresc_eleitorado != null);
   if (!temPop && !temCresc) { el.innerHTML = semDados("Falta a população do IBGE (<code>python baixar_ibge.py</code>) e o eleitorado da eleição anterior (<code>python baixar_dados.py --ano 2022</code>)."); return; }
   const anoAnt = R.crescimento?.ano_ant ?? D.brasil.meta.ano - 4;
-  nota.innerHTML = `${temPop ? "Eleitores aptos divididos pela população com 16 anos ou mais (Censo 2022 do IBGE). Acima de 1, o município tem mais eleitores do que moradores em idade de votar: em geral é gente que se mudou sem transferir o título ou que morreu e ainda não saiu do cadastro, mas também é o que se veria com transferências de título em massa. " : ""}${temCresc ? `O crescimento compara os eleitores aptos com os de ${anoAnt}.` : ""} Os dois aparecem no Mapa.`;
+  let pequenas = "";
+  if (temPop && ms.length > 1) {
+    // por tamanho: em cidade pequena isso é a regra (quem se muda para a cidade grande costuma manter o título)
+    const faixa = (min, max, rot) => {
+      const g = ms.filter((m) => m.razao_pop != null && m.aptos >= min && m.aptos < max);
+      const k = g.filter((m) => m.razao_pop > 1).length;
+      return g.length ? `${n(k)} de ${plural(g.length, "município", "municípios")} ${rot} (${p(div(k, g.length), 0)})` : null;
+    };
+    const fs = [faixa(0, 5000, "com menos de 5 mil eleitores"), faixa(100000, Infinity, "com mais de 100 mil")].filter(Boolean);
+    if (fs.length) pequenas = `Passar de 1 é comum em cidade pequena, de onde muita gente sai para estudar ou trabalhar sem transferir o título: acontece em ${fs.join(", e em ")}. O que pede um olhar é a razão muito acima dos municípios parecidos, principalmente junto com um crescimento forte do eleitorado. `;
+  }
+  nota.innerHTML = `${temPop ? "Eleitores aptos divididos pela população com 16 anos ou mais (Censo 2022 do IBGE). Acima de 1, o município tem mais eleitores do que moradores em idade de votar: em geral é gente que se mudou sem transferir o título ou que morreu e ainda não saiu do cadastro, mas também é o que se veria com transferências de título em massa. " + pequenas : ""}${temCresc ? `O crescimento compara os eleitores aptos com os de ${anoAnt}.` : ""} Os dois aparecem no Mapa.`;
   const acima = ms.filter((m) => m.razao_pop > 1);
   el.innerHTML = numeros([
     ...(temPop ? [{ rotulo: "Municípios com mais eleitores que população 16+", valor: n(acima.length), sub: `${n(acima.reduce((a, m) => a + m.aptos - m.pop_16_mais, 0))} eleitores além da população`, destaque: true },

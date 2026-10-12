@@ -18,7 +18,7 @@ coordenadas da escola) para mostrar, num site leve e estático:
 
 ```
 dados do TSE ──> baixar_*.py ──> dados/*.parquet ──> gerar_site.py ──> web/dados/*.json ──> navegador
-                 (no Mac)                            (uma vez, ~1 min)     (Caddy só entrega arquivos)
+                 (no Mac)                            (uma vez, ~12 min)   (Caddy só entrega arquivos)
 ```
 
 Todo o cálculo (z-scores, cruzamentos, agregações por município, zona e escola)
@@ -43,7 +43,8 @@ python baixar_locais.py
 python gerar_site.py --servir
 ```
 
-`gerar_site.py --servir` gera os dados do site e abre em <http://localhost:8000>.
+`gerar_site.py --servir` gera os dados do site e abre em <http://localhost:8000>. Com os dados do Brasil inteiro leva
+cerca de 12 minutos e usa até ~6 GB de memória.
 Para só gerar (antes de publicar): `python gerar_site.py`.
 
 | Script | O que baixa | Resultado |
