@@ -62,7 +62,7 @@ Separou (a implementar, Parte 2):
   de julho tem (27 seções no país; usar só seções em que o perfil de julho bate com os aptos ±3%).
 - Comparecimento de quem tem digital 83,5% × de quem não tem 41,4% (Brasil).
 
-## 5. Casos extremamente atípicos de horário (proposta, ainda não implementada)
+## 5. Casos extremamente atípicos de horário (IMPLEMENTADO e publicado em 12/out/2026)
 
 Origem: o usuário apontou Lauro de Freitas-BA z180 s529 (nenhum voto até 16h59) e s232 (votos até 20h19).
 
@@ -89,3 +89,35 @@ Contexto: "zona inteira votou até tarde" (fração de seções da zona com últ
 
 Notas de dados: `secao_principal` em `dados/locais_2026.parquet` identifica as seções agregadas; `abertura`, `ultimo_voto`,
 `ociosa_antes_17_min` e os histogramas `h00..h23` (hora LOCAL; converter pelo `fuso`) estão em `dados/logs_*.parquet`.
+
+### 5.1 Como ficou (dados reais, `extras.atipicos`)
+
+- Contagens confirmadas: votos fora do log 1.281 seções (169.230 votos; 637 com menos da metade no log; 26 com log vazio); urna começou
+  tarde 358 (73 depois das 17h); terminou sozinha 456 (20.682 votos após 17h); salto às 17h 3; união 1.718.
+- **Toda seção com "urna começou tarde" também tem "votos fora do log"** (358 de 358), e em todas as 1.255 seções com votos fora do log
+  e algum log a urna do log ficou pronta depois das 9h. É um evento só (troca de urna): a dupla conta como UM padrão. Com isso, 21 seções
+  reúnem 2+ padrões diferentes (fora do log + terminou sozinha: 21, das quais 9 também com urna tarde; Trindade-GO z49 s132 tem fora do
+  log, terminou sozinha e salto às 17h).
+- Contexto de zona: seções da zona com último voto depois das 19h. Metade das zonas do país não tem nenhuma (4.418 de 6.106); p90 = 6,8%,
+  p95 = 11,4%. "Zona votou até tarde" = 5% ou mais (826 zonas). Lauro de Freitas z180: 24 de 413 (6%); Maceió z54: 102 de 338 (30%).
+
+## 6. Amostragens de 12/out/2026 (país inteiro; nada virou tag)
+
+Base: 124.746.009 votos, 8.319.736 liberações pelo mesário. Arquivos: `dados/eleitores_*`, `dados/urnas_*`.
+
+a) **Mesmo mesário em seções diferentes** (código embaralhado, 61% das liberações têm mesário identificado; 695.124 mesários): 117 em 2+
+   seções (1.387 liberações); 106 no mesmo local (mediana de 2 liberações na 2ª seção); 8 em locais diferentes do mesmo município; 3 em
+   municípios diferentes (Mauá/Birigui-SP, Itanhaém/Peruíbe-SP, Palmas/Porto Nacional-TO; em Itanhaém/Peruíbe os horários se sobrepõem,
+   o que sugere erro de reconhecimento da digital do mesário, não verificado).
+b) **Dado do eleitor não conferiu antes da liberação**: 113.473 liberações (1,36%). No log, a urna pede o dado de novo e só libera quando
+   confere ("Dado digitado não confere" → nova solicitação → "Dado digitado confere"). 53 seções com 10+ casos e 50%+ das liberações
+   (Coronel José Dias-PI z13 s199: 60 de 60); só 4 delas têm o critério de liberação manual. Hábito de digitação do mesário.
+c) **Liberação rápida** (urna pede o dado → eleitor liberado): mediana 24 s, p1 10 s, mínimo 4 s. 118 seções com 20+ liberações em até 10 s
+   e 50%+ do total; 450 de 45.585 mesários (com 20+ liberações) têm mediana ≤ 10 s. Nada fisicamente impossível.
+d) **BU e RDV** (arquivos `-bu.dat` e `-rdv.dat` do zip do TSE, ASN.1; lidos por HTTP Range só para a amostra): 3.216 seções (1.716 com
+   tag atípica + 1.500 sorteadas). Comparecimento do BU = oficial, votos para presidente do BU = votação por seção, RDV = BU em todos os
+   cargos: 3.216 de 3.216. O BU traz a contagem digital / sem digital / mesário, que bate com a nossa classificação do log nas 1.926
+   seções com log completo. Nas 1.281 com votos fora do log, o BU tem TODOS os votos (323.717), registra a abertura às 8h e foi emitido
+   pela mesma urna do log publicado: troca de urna, com o log da primeira não publicado (não é cédula de papel).
+e) **Mesma urna em mais de uma seção**: nenhuma. 497.869 seções com voto, 497.869 urnas distintas; cada seção tem um único arquivo de log
+   e uma única urna (o sinal "urna substituída", `n_urnas > 1`, nunca dispara em 2026).

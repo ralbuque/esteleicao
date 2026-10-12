@@ -102,6 +102,22 @@ def conferir() -> int:
                  int(((bitc(fl, 6) > 0) & (bitc(fl, 3 + PADRAO) == 0))[m].sum()))
         m = k["tipo"] == "leitor_quebra_14h"
         caso("leitor_quebra_14h -> defeito a partir das 14h", int(m.sum()), int(k.loc[m, "defeito_desde"].between(13, 15).sum()))
+    if "flags_atip" in k and "atip" in k:  # casos extremamente atípicos (tags)
+        fa, at = k["flags_atip"], k["atip"].fillna("")
+        fora, tarde, soz = bitc(fa, 0) > 0, bitc(fa, 1) > 0, bitc(fa, 2) > 0
+        m = at == "fora_log"
+        caso("fora_log -> tag 'votos fora do log' (e só ela)", int(m.sum()), int((fora & ~tarde & ~soz)[m].sum()),
+             int((fora & ~at.isin(["fora_log", "urna_tarde"])).sum()))
+        m = at == "urna_tarde"
+        caso("urna_tarde -> 'urna começou tarde' + 'votos fora do log'", int(m.sum()), int((tarde & fora)[m].sum()),
+             int((tarde & ~m).sum()))
+        m = at == "sozinha"
+        caso("sozinha -> tag 'terminou sozinha'", int(m.sum()), int(soz[m].sum()), int((soz & ~m).sum()), minimo=0.8)
+        m = k["tipo"] == "fila_local"
+        caso("fila_local -> NÃO é 'terminou sozinha' (escola inteira tarde)", int(m.sum()), int((~soz)[m].sum()))
+        br = json.load(open(WEB / "brasil.json", encoding="utf-8"))["total"]
+        caso("total de 'votos fora do log' no Brasil = seções com a tag", int(bitc(z["flags_atip"], 0).sum()),
+             int(br["atip_fora"]) if br["atip_fora"] == int(bitc(z["flags_atip"], 0).sum()) else 0)
     if "perfil_explica" in k:
         m = k["tipo"] == "perfil_jovem"
         amplo_abst = bitc(k["flags"], 6) > 0

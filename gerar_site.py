@@ -314,6 +314,15 @@ def agregar(df: pd.DataFrame, por: list[str]) -> pd.DataFrame:
             a[f"{nome}_salto"] = extras.bit(df["flags_lib"], 3 + i).groupby(chaves, observed=True).sum()
     if "flags_lib" in df:
         a["defeito"] = extras.bit(df["flags_lib"], extras.BIT_DEFEITO).groupby([df[c] for c in por], observed=True).sum()
+    if "flags_atip" in df:  # casos extremamente atípicos (tags)
+        chaves = [df[c] for c in por]
+        for nome_bit, b in [("fora", extras.BIT_FORA), ("tarde", extras.BIT_TARDE), ("soz", extras.BIT_SOZINHA)]:
+            a[f"atip_{nome_bit}"] = extras.bit(df["flags_atip"], b).groupby(chaves, observed=True).sum()
+        a["fora_votos"] = df["fora_log"].where(extras.bit(df["flags_atip"], extras.BIT_FORA) > 0, 0).groupby(chaves, observed=True).sum()
+        for i, nome in enumerate(NIVEIS):
+            q = extras.n_atipicos(df, i)
+            a[f"{nome}_atip"] = (q > 0).groupby(chaves, observed=True).sum()
+            a[f"{nome}_atip2"] = (q >= 2).groupby(chaves, observed=True).sum()
     return a.reset_index()
 
 
@@ -326,6 +335,9 @@ def cols_agg(df: pd.DataFrame) -> dict:
     if "flags_lib" in df:
         c.update({f"{n}_{k}": 0 for n in NIVEIS for k in ["lib17", "salto"]})
         c["defeito"] = 0
+    if "flags_atip" in df:
+        c.update({k: 0 for k in ["atip_fora", "atip_tarde", "atip_soz", "fora_votos"]})
+        c.update({f"{n}_{k}": 0 for n in NIVEIS for k in ["atip", "atip2"]})
     return c
 
 
@@ -418,6 +430,8 @@ OPC_LISTA = {
     "apos17_so_t2": 0, "manual_tarde_esperado": 1,
     "flags_lib": 0, "man17": 0, "cad17": 0, "man_dia": 0, "cad_dia": 0, "defeito_desde": 0,
     "horas_man": None, "horas_cad": None,
+    "flags_atip": 0, "fora_log": 0, "abertura": 3, "ult_outras": 3, "v17_outras": 1, "aptos_outras": 0,
+    "local_com_log": 0, "zona_19": 0, "zona_log": 0,
 }
 OPC_DETALHE = {
     **OPC_LISTA, "eleitores_perfil": 0, "el_70_mais": 0, "el_16_17": 0, "el_biometria": 0, "pct_biometria": 3,
@@ -538,6 +552,9 @@ def main():
     for cod, b in [("salto_17h", None), ("leitor_defeito", extras.BIT_DEFEITO)]:
         m = (extras.bit(df["flags_lib"], b) > 0) if b is not None else (extras.bit(df["flags_lib"], 3 + list(NIVEIS).index("padrao")) > 0)
         df["sinais_cod"] = df["sinais_cod"].where(~m, df["sinais_cod"] + np.where(df["sinais_cod"] == "", "", ",") + cod)
+    # casos extremamente atípicos: votos fora do log, urna começou tarde, terminou sozinha (tags)
+    df = extras.atipicos(df)
+    rel["atipicos"] = extras.resumo_atipicos(df, NIVEIS)
     print(f"  {len(df):,} seções, {int(df['tem_log'].sum()):,} com log ({time.time() - t0:.0f}s)")
 
     saida: Path = a.saida
@@ -575,6 +592,8 @@ def main():
                  "niveis": NIVEIS, "min_aptos_abst": MIN_APTOS_ABST, "min_votos_17": MIN_VOTOS_17,
                  "lib": {"limites": extras.LIB, "salto_min": extras.SALTO_MIN, "defeito_taxa": extras.DEFEITO_TAXA,
                          "defeito_antes": extras.DEFEITO_ANTES} if "flags_lib" in df else None,
+                 "atip": {**extras.ATIP, **{k: rel["atipicos"][k] for k in ("zonas", "zonas_sem_19", "zonas_tarde")}}
+                 if "flags_atip" in df else None,
                  "faixas": FAIXAS},
         "total": {k: _num(br[k], 0) for k in CA},
         "ufs": tabela(uf, {"uf": None, **CA}),
@@ -592,7 +611,8 @@ def main():
     conc_amplo = extras.bit(df["flags_conc"], 2).astype(bool) if "flags_conc" in df else False
     lib_amplo = ((df["flags_lib"].fillna(0).astype("int64") & ((1 << 2) | (1 << 5) | (1 << extras.BIT_DEFEITO))) > 0) \
         if "flags_lib" in df else False
-    cand = df[(df["f_amplo"] > 0) | conc_amplo | lib_amplo].copy()
+    atip = (df["flags_atip"].fillna(0) > 0) if "flags_atip" in df else False
+    cand = df[(df["f_amplo"] > 0) | conc_amplo | lib_amplo | atip].copy()
     CL = com_opcionais(df, COLS_SECAO_LISTA, OPC_LISTA)
     hor = faixas[df.index.get_indexer(cand.index)] if len(cand) else np.zeros((0, len(FAIXAS)))
     cand["horas"] = [" ".join(map(str, r)) for r in hor]

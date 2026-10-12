@@ -37,15 +37,28 @@ const CRIT = {
 const CONC = { bit: 8, nome: "Voto muito concentrado num candidato", curto: "Voto concentrado", classe: "cor-conc" };
 // tags sobre as liberações pelo mesário ao longo do dia: destacam e filtram, mas NÃO entram na contagem dos critérios
 const TAGS = {
-  lib17: { curto: "Mesário após 17h", nome: "Liberações pelo mesário depois das 17h", classe: "cor-lib17",
+  lib17: { curto: "Liberados pelo mesário após 17h", nome: "Liberações pelo mesário depois das 17h", classe: "cor-lib17", grupo: "lib",
     tem: (s) => !!(((s.flags_lib ?? 0) >> iNivel()) & 1) },
-  salto: { curto: "Salto às 17h", nome: "Salto nas liberações pelo mesário às 17h", classe: "cor-salto",
+  salto: { curto: "Salto às 17h", nome: "Salto nas liberações pelo mesário às 17h", classe: "cor-salto", grupo: "lib",
     tem: (s) => !!(((s.flags_lib ?? 0) >> (3 + iNivel())) & 1) },
-  defeito: { curto: "Leitor com defeito provável", nome: "Leitor de digital com defeito provável", classe: "cor-defeito",
+  defeito: { curto: "Leitor com defeito provável", nome: "Leitor de digital com defeito provável", classe: "cor-defeito", grupo: "lib",
     tem: (s) => !!(((s.flags_lib ?? 0) >> 6) & 1) },
+  // casos extremamente atípicos (flags_atip): regras fixas, iguais nos três níveis de rigor
+  fora: { curto: "Votos fora do log", nome: "Votos que não aparecem no log da urna", classe: "cor-fora", grupo: "atip",
+    tem: (s) => !!((s.flags_atip ?? 0) & 1) },
+  tarde: { curto: "Urna começou tarde", nome: "Urna só começou a receber eleitores à tarde", classe: "cor-tarde", grupo: "atip",
+    tem: (s) => !!((s.flags_atip ?? 0) & 2) },
+  sozinha: { curto: "Terminou sozinha", nome: "Terminou muito depois das outras seções do local", classe: "cor-sozinha", grupo: "atip",
+    tem: (s) => !!((s.flags_atip ?? 0) & 4) },
 };
-const tagsDe = (s) => Object.keys(TAGS).filter((k) => TAGS[k].tem(s));
-const selosTags = (s) => { const ks = tagsDe(s); return ks.length ? `<span class="selos">${ks.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join("")}</span>` : ""; };
+// a lista "Casos extremamente atípicos" junta as três tags acima e o salto às 17h
+const ATIPICOS = ["fora", "tarde", "sozinha", "salto"];
+const atipDe = (s) => ATIPICOS.filter((k) => TAGS[k].tem(s));
+// quantos padrões DIFERENTES: "votos fora do log" + "urna começou tarde" são a mesma troca de urna e contam como um
+const nAtip = (s) => { const ks = atipDe(s); return ks.length - (ks.includes("fora") && ks.includes("tarde") ? 1 : 0); };
+const tagsDe = (s, grupo) => Object.keys(TAGS).filter((k) => (!grupo || TAGS[k].grupo === grupo) && TAGS[k].tem(s));
+const selosDe = (ks) => (ks.length ? `<span class="selos">${ks.map((k) => `<span class="selo ${TAGS[k].classe}" title="${esc(TAGS[k].nome)}">${TAGS[k].curto}</span>`).join("")}</span>` : "");
+const selosTags = (s, grupo) => selosDe(tagsDe(s, grupo));
 const limiteLib = () => D.brasil.meta.lib?.limites?.[E.nivel]?.min17 ?? 10;
 const ROT_FAIXA = (h) => (h === 18 ? "18h+" : `${h}h`);
 const reais = (x) => (x == null || !Number.isFinite(x) ? "—" : x.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: Math.abs(x) >= 100 ? 0 : 2 }));
@@ -218,6 +231,87 @@ function tabela(el, { colunas, linhas, ordem, limite = 50, aoClicar, arquivo, va
   }
   desenhar();
 }
+// Lista em cartões, com ordenação escolhida pela pessoa, "mostrar mais" e exportação CSV.
+// ordens: [{ k, rot, val(o) }]; ordem: { k, desc } (o objeto é alterado aqui, para a escolha sobreviver aos filtros)
+function cartoes(el, { linhas, cartao, ordens, ordem, limite = 30, aoClicar, arquivo, colunasCsv, vazio = "Nada para mostrar neste recorte." }) {
+  let mostrar = limite;
+  function desenhar() {
+    if (!linhas.length) { el.innerHTML = `<div class="vazio">${vazio}</div>`; return; }
+    const o = ordens.find((x) => x.k === ordem.k) || ordens[0];
+    const ls = [...linhas].sort((a, b) => {
+      const va = o.val(a), vb = o.val(b);
+      if (va == null && vb == null) return 0;
+      if (va == null) return 1;
+      if (vb == null) return -1;
+      return (va < vb ? -1 : va > vb ? 1 : 0) * (ordem.desc ? -1 : 1);
+    });
+    const vis = ls.slice(0, mostrar);
+    el.innerHTML = `<div class="cartoes-barra">
+        <label>Ordenar por <select data-ord>${ordens.map((x) => `<option value="${x.k}" ${x.k === o.k ? "selected" : ""}>${esc(x.rot)}</option>`).join("")}</select></label>
+        <button type="button" data-dir>${ordem.desc ? "Do maior para o menor ↓" : "Do menor para o maior ↑"}</button>
+        <span class="cartoes-conta">Mostrando ${n(vis.length)} de ${n(ls.length)}</span>
+        ${arquivo ? `<button type="button" data-csv>Baixar planilha (CSV)</button>` : ""}</div>
+      <div class="cartoes">${vis.map((x, i) => `<article class="cartao-secao${aoClicar ? " clicavel" : ""}" data-i="${i}" ${aoClicar ? 'tabindex="0" role="button"' : ""}>${cartao(x)}</article>`).join("")}</div>
+      ${ls.length > mostrar ? `<div class="cartoes-mais"><button type="button" data-mais>Mostrar mais ${n(Math.min(60, ls.length - mostrar))}</button></div>` : ""}`;
+    $("[data-ord]", el).addEventListener("change", (e) => { ordem.k = e.target.value; mostrar = limite; desenhar(); });
+    $("[data-dir]", el).addEventListener("click", () => { ordem.desc = !ordem.desc; desenhar(); });
+    $("[data-mais]", el)?.addEventListener("click", () => { mostrar += 60; desenhar(); });
+    $("[data-csv]", el)?.addEventListener("click", () => baixarCsv(arquivo, colunasCsv, ls));
+    if (aoClicar) $$(".cartao-secao", el).forEach((c) => {
+      const f = () => aoClicar(vis[+c.dataset.i]);
+      c.addEventListener("click", (ev) => { if (!ev.target.closest("a")) f(); });
+      c.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); f(); } });
+    });
+  }
+  desenhar();
+}
+// Lista de SEÇÕES em cartões, a partir das mesmas colunas usadas nas tabelas (e no CSV):
+// cabeçalho com seção, zona, município e local; selos dos critérios e das tags; um número por coluna visível.
+function cartoesSecao(el, { colunas, linhas, ordem, limite = 30, aoClicar, arquivo, vazio }) {
+  const fora = new Set(["secao", "escola", "crit"]);
+  const corpo = colunas.filter((c) => !c.oculto && !fora.has(c.k));
+  const cCrit = colunas.find((c) => c.k === "crit");
+  const ordens = colunas.filter((c) => !c.oculto && !c.semOrdem && c.k !== "escola").map((c) => ({
+    k: c.k, rot: c.k === "secao" ? "Zona e seção" : c.k === "crit" ? "Critérios (quantos e intensidade)" : c.rot,
+    val: (o) => (c.ord ? c.ord(o) : o[c.k]) }));
+  const cartao = (o) => {
+    const hc = cCrit ? cCrit.html(o) : "";
+    return `<header><h3>Seção ${o.secao} <span class="sub">Zona ${o.zona}</span></h3><p class="onde">${esc(o.mun_nome ?? "")}${o.uf ? ` (${esc(o.uf)})` : ""}</p></header>
+      <p class="local">${esc(o.escola ?? "Local não informado")}${o.bairro ? `<span class="sub">${esc(o.bairro)}</span>` : ""}</p>
+      <div class="cartao-selos">${hc.includes('class="selo') ? hc : ""}${selosTags(o)}</div>
+      <dl class="dados">${corpo.map((c) => `<div class="dado"><dt>${c.rot}</dt><dd>${c.html ? c.html(o) : esc(o[c.k] ?? "—")}</dd></div>`).join("")}</dl>`;
+  };
+  cartoes(el, { linhas, cartao, ordens, ordem: ordem || { k: ordens[0].k, desc: true }, limite: Math.min(limite, 60), aoClicar, arquivo, colunasCsv: colunas, vazio });
+}
+// Filtro de três estados por tag: tanto faz (0), tem (1, "igual"), não tem (-1, "não igual"). Clicar alterna.
+const TRI_ROT = { 0: "tanto faz", 1: "tem", [-1]: "não tem" };
+const TRI_ITEM = (k) => TAGS[k] || CRIT[k] || (k === "conc" ? CONC : null);  // tags e critérios usam o mesmo botão
+function filtroTri(k, v) {
+  const t = TRI_ITEM(k);
+  return `<button type="button" class="tri" data-tri="${k}" data-v="${v}" aria-label="${esc(t.curto)}: ${TRI_ROT[v]}" title="${esc(t.nome)}. Clique para alternar: tem, não tem, tanto faz."><span class="tri-sinal" aria-hidden="true">${v === 1 ? "=" : v === -1 ? "≠" : ""}</span><span class="selo ${t.classe}">${t.curto}</span></button>`;
+}
+function ligarTri(el, aoMudar) {
+  $$("[data-tri]", el).forEach((b) => b.addEventListener("click", () => {
+    const v = +b.dataset.v, novo = v === 0 ? 1 : v === 1 ? -1 : 0;
+    b.dataset.v = novo;
+    b.setAttribute("aria-label", `${TRI_ITEM(b.dataset.tri).curto}: ${TRI_ROT[novo]}`);
+    $(".tri-sinal", b).textContent = novo === 1 ? "=" : novo === -1 ? "≠" : "";
+    aoMudar();
+  }));
+}
+// No celular os filtros ficam recolhidos atrás de "Mostrar filtros" (com a contagem dos que estão em uso);
+// em telas largas ficam sempre abertos e o botão some (estilo.css).
+const abreFiltros = () => `<details class="filtros-recolher" ${matchMedia("(max-width: 640px)").matches ? "" : "open"}><summary><span class="fechado">Mostrar filtros</span><span class="aberto">Esconder filtros</span><span class="ativos"></span></summary>`;
+function contarFiltros(el) {
+  const d = $(".filtros-recolher", el);
+  if (!d) return;
+  const q = $$("[data-tri]", d).filter((b) => b.dataset.v !== "0").length
+    + $$("input[type=checkbox]", d).filter((i) => i.checked && i.id !== "f-conc").length
+    + $$("select, input[type=search]", d).filter((i) => i.value.trim()).length;
+  $(".ativos", d).textContent = q ? ` (${q} em uso)` : "";
+}
+const lerTri = (el) => Object.fromEntries($$("[data-tri]", el).map((b) => [b.dataset.tri, +b.dataset.v]));
+
 function baixarCsv(nome, colunas, linhas) {
   const cs = colunas.filter((c) => c.csv !== false);
   const cel = (v) => {
@@ -320,6 +414,15 @@ TELAS.panorama = async (el) => {
         ${cartaoTag("defeito", a.defeito, "O leitor falhou com quase todos, o dia todo ou a partir de alguma hora antes das 17h. Quase sempre é equipamento; a ata deve registrar.")}
       </div>
     </section>` : ""}
+    ${a.atip_fora != null && D.brasil.meta.atip ? `<section class="bloco">
+      <header><h2>Casos extremamente atípicos</h2><p>Padrões raros no horário e na conta de votos da urna. São tags: não entram na contagem dos três critérios e não mudam com o rigor.</p></header>
+      <p class="nota" style="margin-bottom:12px">${esc(Cap(emRecorte()))}, <strong>${plural(a[`${P}_atip`], "seção reúne", "seções reúnem")} pelo menos um destes padrões</strong>, ${n(a[`${P}_atip2`])} com dois ou mais. Quase sempre a ata da seção explica (urna trocada, fila). <a href="${link({ tela: "atipicos" })}">Ver a lista completa</a>.</p>
+      <div class="criterios">
+        ${cartaoTag("fora", a.atip_fora, `O resultado oficial tem ${n(D.brasil.meta.atip.fora_min)} ou mais votos que não aparecem no log publicado da urna. Nessas seções são ${n(a.fora_votos)} votos fora do log. Costuma ser urna trocada: o boletim de urna tem todos os votos, mas o log da primeira urna não foi publicado.`, "atipicos")}
+        ${cartaoTag("tarde", a.atip_tarde, `A urna do log só ficou pronta para o primeiro eleitor das ${n(D.brasil.meta.atip.tarde_hora)}h em diante (horário de Brasília). Costuma ser urna substituída; a ata deve registrar.`, "atipicos")}
+        ${cartaoTag("sozinha", a.atip_soz, `A seção continuou votando ${n(D.brasil.meta.atip.soz_min)} minutos ou mais depois de todas as outras do mesmo local, que quase não tiveram votos depois das 17h. Não é fila da escola.`, "atipicos")}
+      </div>
+    </section>` : ""}
     ${tem17 ? `<section class="bloco duas-colunas">
       <div><header style="margin-bottom:14px"><h2>A que horas se votou</h2></header><div id="g-horas"></div></div>
       <div><header style="margin-bottom:14px"><h2>Votos depois das 17h, por seção</h2></header><div id="t-faixas"></div><p class="nota" style="margin-top:10px">A maior parte das seções tem poucos votos depois das 17h, o que é normal. Os casos que interessam estão nas faixas de cima.</p></div>
@@ -350,8 +453,8 @@ TELAS.panorama = async (el) => {
   await tabelaFilhos();
 };
 
-function cartaoTag(k, q, texto) {
-  const t = TAGS[k], l = link({ tela: "atencao" });
+function cartaoTag(k, q, texto, tela = "atencao") {
+  const t = TAGS[k], l = link({ tela });
   return `<article class="criterio ${t.classe}"><span class="qtd">${n(q ?? 0)}</span><h3>${t.nome}</h3><p>${texto}</p>
     <a href="${l}${l.includes("?") ? "&" : "?"}tag=${k}">Ver as seções</a></article>`;
 }
@@ -390,9 +493,9 @@ async function tabelaFilhos() {
       linhas: objetos((await D.mun(E.mun)).zonas), ordem: { k: "sec", desc: true }, aoClicar: (o) => ir({ zona: o.zona }), arquivo: `zonas_${E.mun}.csv` });
   } else {
     tit.textContent = "Todas as seções da zona";
-    nota.textContent = "Clique numa seção para ver o detalhe.";
+    nota.textContent = "Clique numa seção para ver o detalhe. Dá para ordenar por qualquer número.";
     const ss = secoesDe(await D.zona(E.mun, E.zona));
-    tabela(el, { colunas: colunasSecao({ compacto: true }), linhas: ss, ordem: { k: "crit", desc: true }, limite: 100, aoClicar: abrirSecao, arquivo: `secoes_${E.mun}_zona${E.zona}.csv` });
+    cartoesSecao(el, { colunas: colunasSecao({ compacto: true, comLib: ss.some((x) => x.flags_lib != null) }), linhas: ss, ordem: { k: "crit", desc: true }, limite: 60, aoClicar: abrirSecao, arquivo: `secoes_${E.mun}_zona${E.zona}.csv` });
   }
 }
 
@@ -411,8 +514,8 @@ function colunasSecao({ compacto = false, comMunicipio = false, comConc = false,
     { k: "votos_manual", rot: "Liberados pelo mesário", num: true, html: (o) => (o.votos_log ? `${n(o.votos_manual)}<span class="sub">${p(o.pct_manual_cadastrados)} de quem tem digital</span>` : "—") },
     ...(comConc ? [{ k: "conc_votos", rot: "Voto concentrado", num: true, html: (o) => (temConc(o) ? `<span class="forte">${n(o.conc_votos)}</span><span class="sub">${p(o.conc_fatia)} para ${esc(nomeCand(o.conc_nome))}</span>` : "—"), csv: (o) => (temConc(o) ? `${o.conc_nome}: ${o.conc_votos} votos (${p(o.conc_fatia)})` : "") }] : []),
     ...(comLib ? [
-      { k: "man17", rot: "Mesário após 17h", num: true, ord: (o) => (o.man17 ?? -1) + (tagsDe(o).includes("salto") ? 1e4 : 0),
-        html: (o) => (o.man17 == null ? "—" : `<span class="forte">${n(o.man17)}</span><span class="sub">${o.cad17 ? `de ${n(o.cad17)} com digital (${p(div(o.man17, o.cad17))})` : "liberados"}</span>${selosTags(o)}`),
+      { k: "man17", rot: "Liberados pelo mesário após 17h", num: true, ord: (o) => (o.man17 ?? -1) + (tagsDe(o).includes("salto") ? 1e4 : 0),
+        html: (o) => (o.man17 == null ? "—" : `<span class="forte">${n(o.man17)}</span><span class="sub">${o.cad17 ? `de ${n(o.cad17)} com digital (${p(div(o.man17, o.cad17))})` : "liberados"}</span>`),
         csv: (o) => o.man17 ?? "" },
       { k: "cad17", rot: "Com digital após 17h", oculto: true, csv: (o) => o.cad17 ?? "" },
       { k: "tags", rot: "Tags", oculto: true, csv: (o) => tagsDe(o).map((k) => TAGS[k].curto).join(", ") + (o.defeito_desde > 8 ? ` (desde ${o.defeito_desde}h)` : "") },
@@ -431,7 +534,7 @@ function gravidade(o) {
 TELAS.atencao = async (el) => {
   const q = new URLSearchParams(location.hash.split("?")[1] || "");
   el.innerHTML = `<section class="manchete"><h1 id="at-titulo">Seções em atenção ${esc(emRecorte())}</h1>
-    <p>Cada linha é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.</p></section>
+    <p>Cada cartão é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.</p></section>
     <div class="carregando">Carregando as seções…</div>`;
   const ufs = E.uf ? [E.uf] : objetos(D.brasil.ufs).map((u) => u.uf);
   const arqs = await Promise.all(ufs.map((u) => D.uf(u)));
@@ -440,7 +543,7 @@ TELAS.atencao = async (el) => {
   const tagsIni = new Set((q.get("tag") || "").split(",").filter((k) => TAGS[k]));
   const temConcDados = todas.some((s) => s.flags_conc != null) || (D.brasil.meta.fontes_extras || []).includes("concentracao");
   const comConcIni = q.get("crit") === "conc" || localStorageGet("conc") === "1";
-  const filtroCrit = new Set(q.get("crit") && q.get("crit") !== "conc" ? [q.get("crit")] : ["abst", "17h", "man", "conc"]);
+  const critIni = CRIT[q.get("crit")] ? q.get("crit") : null;
   const tipos = [...new Set(todas.map((s) => s.tipo_local).filter(Boolean))].sort();
   const temIdade = todas.some((s) => s.perfil_explica != null);
   const temAnt = todas.some((s) => s.flags_ant != null);
@@ -450,16 +553,21 @@ TELAS.atencao = async (el) => {
   const P = pref();
   const ag = await agregadoRecorte();
   el.innerHTML = `<section class="manchete"><h1 id="at-titulo"></h1>
-    <p id="at-sub">Cada linha é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.</p></section>
-    <div class="filtros">
-      ${Object.entries(CRIT).map(([k, c]) => `<label><input type="checkbox" data-crit="${k}" ${filtroCrit.has(k) ? "checked" : ""}> <span class="selo ${c.classe}">${c.curto}</span></label>`).join("")}
-      ${temConcDados ? `<label title="Critério opcional: um candidato teve na seção uma fatia de votos muito acima da que teve no resto do município"><input type="checkbox" id="f-conc" ${comConcIni ? "checked" : ""}> <span class="selo ${CONC.classe}">${CONC.curto}</span> <span class="sub">(4º critério, opcional)</span></label>` : ""}
+    <p id="at-sub"></p></section>
+    ${abreFiltros()}
+    <div class="filtros filtros-tri">
+      <span class="rotulo-tags">Critérios <span class="sub">(clique para alternar: <b>=</b> tem, <b>≠</b> não tem, sem sinal tanto faz)</span></span>
+      ${Object.keys(CRIT).map((k) => filtroTri(k, critIni === k ? 1 : 0)).join("")}
+      ${temConcDados ? filtroTri("conc", q.get("crit") === "conc" ? 1 : 0) : ""}
+    </div>
+    ${temLib ? `<div class="filtros filtros-tri"><span class="rotulo-tags">Tags <span class="sub">(não contam como critério; com <b>=</b>, a seção entra mesmo sem critério)</span></span>
+      ${Object.keys(TAGS).map((k) => filtroTri(k, tagsIni.has(k) ? 1 : 0)).join("")}
+    </div>` : ""}
+    <div class="filtros" style="margin-top:14px">
+      ${temConcDados ? `<label title="Critério opcional: um candidato teve na seção uma fatia de votos muito acima da que teve no resto do município"><input type="checkbox" id="f-conc" ${comConcIni ? "checked" : ""}> Contar voto concentrado como 4º critério <span class="sub">(opcional)</span></label>` : ""}
       <label><input type="checkbox" id="f-multi"> Só com 2 critérios ou mais</label>
       <input type="search" id="f-busca" placeholder="Buscar escola, bairro ou número da seção" aria-label="Buscar">
     </div>
-    ${temLib ? `<div class="filtros filtros-tags"><span class="rotulo-tags">Tags <span class="sub">(não contam como critério; marcar mostra só as seções com a tag)</span></span>
-      ${Object.entries(TAGS).map(([k, t]) => `<label title="${esc(t.nome)}"><input type="checkbox" data-tag="${k}" ${tagsIni.has(k) ? "checked" : ""}> <span class="selo ${t.classe}">${t.curto}</span></label>`).join("")}
-    </div>` : ""}
     ${tipos.length || temIdade || temAnt || temTransf || temAgreg ? `<div class="filtros filtros-contexto">
       ${tipos.length ? `<label>Tipo de local <select id="f-tipo"><option value="">Todos</option>${tipos.map((t) => `<option>${esc(t)}</option>`).join("")}</select></label>` : ""}
       ${temIdade ? `<label><input type="checkbox" id="f-idade"> Esconder quando a idade dos eleitores explica o destaque</label>` : ""}
@@ -467,24 +575,30 @@ TELAS.atencao = async (el) => {
       ${temTransf ? `<label><input type="checkbox" id="f-transf"> Só seções que receberam eleitores transferidos</label>` : ""}
       ${temAgreg ? `<label><input type="checkbox" id="f-agreg"> Só seções com outras agregadas</label>` : ""}
     </div>` : ""}
+    </details>
     <div id="lista"></div>`;
+  // a ordenação escolhida continua valendo quando os filtros mudam
+  const ordem = tagsIni.size && [...tagsIni].every((k) => TAGS[k].grupo === "lib") ? { k: "man17", desc: true } : { k: "crit", desc: true };
+  const BITS_TRI = [["abst", 1], ["17h", 2], ["man", 4], ["conc", 8]];
   const filtrar = () => {
-    const comConc = !!$("#f-conc")?.checked;
-    localStorageSet("conc", comConc ? "1" : "0");
-    const bits = $$("[data-crit]", el).filter((i) => i.checked).reduce((a, i) => a | CRIT[i.dataset.crit].bit, 0) | (comConc ? 8 : 0);
+    const tri = lerTri(el);
+    contarFiltros(el);
+    localStorageSet("conc", $("#f-conc")?.checked ? "1" : "0");
+    const comConc = !!$("#f-conc")?.checked || tri.conc === 1;
     const multi = $("#f-multi").checked;
     const termo = $("#f-busca").value.trim().toLowerCase();
     const tipo = $("#f-tipo")?.value || "";
     const semIdade = $("#f-idade")?.checked;
     const ant = $("#f-ant")?.value || "";
     const soTransf = $("#f-transf")?.checked, soAgreg = $("#f-agreg")?.checked;
-    const tagsSel = $$("[data-tag]", el).filter((i) => i.checked).map((i) => i.dataset.tag);
+    const tagsSel = Object.keys(TAGS).filter((k) => tri[k] === 1);
     const ls = todas.filter((s) => {
       let c = critX(s, comConc);
       if (semIdade) c &= ~((explicaIdade(s, 1) ? 1 : 0) | (explicaIdade(s, 4) ? 4 : 0));
-      if (tagsSel.length) {  // com tag marcada, a lista é das seções com a tag (tenham ou não critério)
-        if (!tagsDe(s).some((k) => tagsSel.includes(k))) return false;
-      } else if (!(c & bits)) return false;
+      const ct = c | (temConc(s) ? 8 : 0), ks = tagsDe(s);
+      if (BITS_TRI.some(([k, b]) => (tri[k] === 1 && !(ct & b)) || (tri[k] === -1 && (ct & b)))) return false;
+      if (Object.keys(TAGS).some((k) => (tri[k] === 1 && !ks.includes(k)) || (tri[k] === -1 && ks.includes(k)))) return false;
+      if (!tagsSel.length && !c) return false;  // sem tag exigida, a lista é das seções com algum critério
       if (multi && ncrit(c) < 2) return false;
       if (tipo && s.tipo_local !== tipo) return false;
       if (ant) {
@@ -499,21 +613,140 @@ TELAS.atencao = async (el) => {
       return true;
     });
     const mult = ls.filter((s) => ncrit(critX(s, comConc)) >= 2).length;
+    const soLib = tagsSel.every((k) => TAGS[k].grupo === "lib");
     $("#at-sub").textContent = tagsSel.length
-      ? "Cada linha é uma seção com a tag marcada, tenha ou não algum critério. As tags não entram na contagem das seções em atenção. Clique para ver as liberações hora a hora."
-      : "Cada linha é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.";
-    if (tagsSel.length) {
+      ? `Cada cartão é uma seção com a tag marcada, tenha ou não algum critério. As tags não entram na contagem das seções em atenção. ${soLib ? "Clique para ver as liberações hora a hora." : "Clique para ver os números de cada caso."}`
+      : "Cada cartão é uma seção que cumpre pelo menos um critério. Clique para ver os números explicados, o horário dos votos e as outras seções da mesma escola.";
+    if (tagsSel.length && !soLib) {
+      $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" e ")}. A lista própria, com os números de cada caso, está em <a href="${link({ tela: "atipicos" })}">Casos extremamente atípicos</a>.`;
+    } else if (tagsSel.length) {
       const lib = ls.reduce((a, s) => a + (s.man17 || 0), 0), cad = ls.reduce((a, s) => a + (s.cad17 || 0), 0);
-      $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" ou ")}. Nelas, <b>${plural(lib, "eleitor foi liberado", "eleitores foram liberados")} pelo mesário depois das 17h</b>${cad ? `, ${p(div(lib, cad))} de ${n(cad)} com digital` : ""}.`;
+      $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção", "seções")}</b> ${esc(emRecorte())} com a tag ${tagsSel.map((k) => `<span class="selo ${TAGS[k].classe}">${TAGS[k].curto}</span>`).join(" e ")}. Nelas, <b>${plural(lib, "eleitor foi liberado", "eleitores foram liberados")} pelo mesário depois das 17h</b>${cad ? `, ${p(div(lib, cad))} de ${n(cad)} com digital` : ""}.`;
     } else $("#at-titulo").innerHTML = `<b>${plural(ls.length, "seção chama", "seções chamam")} atenção</b> ${esc(emRecorte())}${mult ? `, ${plural(mult, "delas", "delas")} em dois critérios ou mais` : ""}.`;
-    tabela($("#lista"), {
-      colunas: colunasSecao({ comMunicipio: !E.mun, comConc, comLib: temLib }), linhas: ls, ordem: tagsSel.length ? { k: "man17", desc: true } : { k: "crit", desc: true },
+    cartoesSecao($("#lista"), {
+      colunas: colunasSecao({ comMunicipio: !E.mun, comConc, comLib: temLib }), linhas: ls, ordem,
       aoClicar: abrirSecao, arquivo: `secoes_em_atencao_${E.uf || "BR"}${E.mun ? "_" + E.mun : ""}_${E.nivel}.csv`,
       vazio: "Nenhuma seção com esses filtros neste recorte. Tente o rigor amplo ou marque outros critérios.",
     });
   };
   void ag; void P;
+  ligarTri(el, filtrar);
   $$("input, select", el).forEach((i) => i.addEventListener(i.type === "search" ? "input" : "change", filtrar));
+  filtrar();
+};
+
+// ---------------------------------------------------------------- Casos extremamente atípicos
+const TXT_ATIP = {
+  fora: (m) => `O resultado oficial registra ${n(m.fora_min)} ou mais eleitores a mais do que os votos que aparecem no log publicado da urna. A explicação comum é troca de urna durante o dia: nas seções em que conferimos, o boletim de urna tem todos os votos, e o que falta é o log da primeira urna.`,
+  tarde: (m) => `A urna do log só ficou pronta para o primeiro eleitor das ${n(m.tarde_hora)}h em diante (horário de Brasília; a votação começa às 8h). Costuma ser urna substituída: os votos da manhã ficaram em outra urna.`,
+  sozinha: (m) => `O último voto foi ${n(m.soz_min)} minutos ou mais depois do último voto de todas as outras seções do mesmo local, com ${n(m.soz_votos17)} ou mais votos depois das 17h, enquanto as vizinhas quase não tiveram (até ${n(m.soz_outras17)} em média). Só vale em local com ${n(m.soz_secoes)} seções ou mais, sem seção agregada e sem ser bem maior que as vizinhas.`,
+  salto: () => "Durante o dia o leitor reconhecia a maioria dos eleitores; a partir das 17h, a maior parte passou a ser liberada pelo mesário. É a única das quatro que muda com o rigor.",
+};
+const contextoZona = (s) => {
+  if (!s.zona_log) return null;
+  const f = div(s.zona_19, s.zona_log);
+  return { f, nivel: f >= (D.brasil.meta.atip?.zona_alta ?? 0.05) ? 2 : 0 };  // 2 = a zona votou até tarde
+};
+TELAS.atipicos = async (el) => {
+  const m = D.brasil.meta.atip;
+  if (!m) {
+    el.innerHTML = `<div class="vazio">Esta lista depende dos logs das urnas, que ainda não foram processados nesta geração do site.</div>`;
+    return;
+  }
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  el.innerHTML = `<section class="manchete"><h1>Casos extremamente atípicos ${esc(emRecorte())}</h1></section><div class="carregando">Carregando as seções…</div>`;
+  const ufs = E.uf ? [E.uf] : objetos(D.brasil.ufs).map((u) => u.uf);
+  const arqs = await Promise.all(ufs.map((u) => D.uf(u)));
+  const todas = arqs.flatMap((a) => secoesDe(a)).filter((s) => atipDe(s).length && dentro(s));
+  const tagsIni = new Set((q.get("tag") || "").split(",").filter((k) => ATIPICOS.includes(k)));
+  const qtd = (k) => todas.filter((s) => TAGS[k].tem(s)).length;
+  el.innerHTML = `<section class="manchete"><h1 id="ca-titulo"></h1>
+      <p>Padrões raros no horário da votação e na conta de votos da urna. <strong>Não são prova de irregularidade</strong>: quase sempre a ata da seção explica (urna trocada, fila). São tags, fora da contagem dos três critérios. A lista começa pelas seções que reúnem mais padrões diferentes; votos fora do log junto com urna que começou tarde contam como um só, porque são a mesma troca de urna.</p></section>
+    <section class="bloco"><div class="criterios criterios-4">
+      ${ATIPICOS.map((k) => `<article class="criterio ${TAGS[k].classe}"><span class="qtd">${n(qtd(k))}</span><h3>${TAGS[k].nome}</h3><p>${TXT_ATIP[k](m)}</p></article>`).join("")}
+    </div></section>
+    ${abreFiltros()}
+    <div class="filtros filtros-tri">
+      <span class="rotulo-tags">Padrões <span class="sub">(clique para alternar: <b>=</b> tem, <b>≠</b> não tem, sem sinal tanto faz)</span></span>
+      ${ATIPICOS.map((k) => filtroTri(k, tagsIni.has(k) ? 1 : 0)).join("")}
+    </div>
+    <div class="filtros">
+      <label title="Votos fora do log junto com urna que começou tarde contam como um só: é a mesma troca de urna"><input type="checkbox" id="ca-multi"> Só com 2 padrões diferentes ou mais</label>
+      <label><input type="checkbox" id="ca-zona"> Esconder quando a zona votou até tarde</label>
+      <input type="search" id="ca-busca" placeholder="Buscar escola, bairro, município ou seção" aria-label="Buscar">
+    </div>
+    </details>
+    <div id="ca-lista"></div>`;
+  const peso = (o) => nAtip(o) * 1e6 + Math.max(0, o.fora_log ?? 0) + (TAGS.sozinha.tem(o) || TAGS.tarde.tem(o) ? (o.votos_apos_17 ?? 0) : 0);
+  const colunas = [
+    { k: "secao", rot: "Seção", html: (o) => `<span class="forte">Seção ${o.secao}</span><span class="sub">Zona ${o.zona}</span>`, csv: (o) => o.secao, ord: (o) => o.zona * 1e5 + o.secao },
+    { k: "zona", rot: "Zona", csv: (o) => o.zona, html: () => "", semOrdem: true, oculto: true },
+    { k: "escola", rot: "Local de votação", html: (o) => `${esc(o.escola ?? "Local não informado")}<span class="sub">${esc([o.bairro, E.mun ? null : `${o.mun_nome} (${o.uf})`].filter(Boolean).join(", "))}</span>`, csv: (o) => o.escola },
+    { k: "mun_nome", rot: "Município", csv: (o) => `${o.mun_nome} (${o.uf})`, html: () => "", oculto: true },
+    { k: "endereco", rot: "Endereço", csv: (o) => [o.endereco, o.bairro, o.cep].filter(Boolean).join(" - "), html: () => "", oculto: true },
+    { k: "padroes", rot: "Padrões", num: true, ord: peso, html: (o) => selosDe(atipDe(o)), csv: (o) => atipDe(o).map((k) => TAGS[k].curto).join(", ") },
+    { k: "fora_log", rot: "Votos fora do log", num: true, ord: (o) => o.fora_log,
+      html: (o) => (o.fora_log >= m.fora_min ? `<span class="forte">${n(o.fora_log)}</span><span class="sub">${p(div(o.fora_log, o.comparecimento), 0)} dos ${n(o.comparecimento)} oficiais; o log tem ${n(o.votos_log)}</span>` : `<span class="sub">${n(Math.max(0, o.fora_log ?? 0))}</span>`), csv: (o) => o.fora_log },
+    { k: "comparecimento", rot: "Comparecimento oficial", oculto: true, csv: (o) => o.comparecimento },
+    { k: "votos_log", rot: "Votos no log", oculto: true, csv: (o) => o.votos_log },
+    { k: "abertura", rot: "Urna pronta às", num: true, html: (o) => (o.abertura == null ? "—" : TAGS.tarde.tem(o) ? `<span class="forte">${hora(o.abertura)}</span>` : hora(o.abertura)), csv: (o) => hora(o.abertura) },
+    { k: "ultimo_voto", rot: "Último voto", num: true, html: (o) => (o.ultimo_voto == null ? "—" : `${TAGS.sozinha.tem(o) ? `<span class="forte">${hora(o.ultimo_voto)}</span>` : hora(o.ultimo_voto)}${o.ult_outras != null ? `<span class="sub">outras do local: ${hora(o.ult_outras)}</span>` : ""}`), csv: (o) => hora(o.ultimo_voto) },
+    { k: "ult_outras", rot: "Último voto das outras seções do local", oculto: true, csv: (o) => hora(o.ult_outras) },
+    { k: "votos_apos_17", rot: "Votos após 17h", num: true, html: (o) => (o.votos_log ? `${n(o.votos_apos_17)}<span class="sub">${p(o.pct_apos_17)} dos votos${o.v17_outras != null ? `; outras: ${dec(o.v17_outras, 1)} em média` : ""}</span>` : "—") },
+    { k: "zona_tarde", rot: "Zona até tarde", num: true, ord: (o) => div(o.zona_19, o.zona_log),
+      html: (o) => { const c = contextoZona(o); return c ? `${n(o.zona_19)} de ${n(o.zona_log)}<span class="sub">${p(c.f, 0)} das seções da zona após 19h${c.nivel === 2 ? ": zona até tarde" : ""}</span>` : "—"; },
+      csv: (o) => (o.zona_log ? `${o.zona_19} de ${o.zona_log}` : "") },
+    { k: "aptos", rot: "Eleitores aptos", num: true, html: (o) => n(o.aptos) },
+  ];
+  const filtrar = () => {
+    const tri = lerTri(el);
+    contarFiltros(el);
+    const multi = $("#ca-multi").checked, semZona = $("#ca-zona").checked;
+    const termo = $("#ca-busca").value.trim().toLowerCase();
+    const ls = todas.filter((s) => {
+      const ks = atipDe(s);
+      if (ATIPICOS.some((k) => (tri[k] === 1 && !ks.includes(k)) || (tri[k] === -1 && ks.includes(k)))) return false;
+      if (multi && nAtip(s) < 2) return false;
+      if (semZona && contextoZona(s)?.nivel === 2) return false;
+      if (termo && !`${s.escola} ${s.bairro} ${s.mun_nome} secao ${s.secao} zona ${s.zona}`.toLowerCase().includes(termo)) return false;
+      return true;
+    });
+    const mult = ls.filter((s) => nAtip(s) >= 2).length;
+    $("#ca-titulo").innerHTML = `<b>${plural(ls.length, "seção reúne", "seções reúnem")}</b> ${esc(emRecorte())} pelo menos um padrão extremamente atípico${mult ? `, <b>${n(mult)}</b> com dois ou mais` : ""}.`;
+    cartoes($("#ca-lista"), { linhas: ls, cartao, ordens, ordem, aoClicar: abrirSecao, colunasCsv: colunas,
+      arquivo: `casos_atipicos_${E.uf || "BR"}${E.mun ? "_" + E.mun : ""}.csv`, vazio: "Nenhuma seção com esses filtros neste recorte." });
+  };
+  const ordem = { k: "padroes", desc: true };
+  const ordens = [
+    { k: "padroes", rot: "Quantos padrões reúne", val: peso },
+    { k: "fora_log", rot: "Votos fora do log", val: (o) => o.fora_log },
+    { k: "fora_pct", rot: "% do comparecimento fora do log", val: (o) => div(o.fora_log, o.comparecimento) },
+    { k: "abertura", rot: "Hora em que a urna ficou pronta", val: (o) => o.abertura },
+    { k: "ultimo_voto", rot: "Hora do último voto", val: (o) => o.ultimo_voto },
+    { k: "depois_outras", rot: "Minutos depois das outras seções do local", val: (o) => (o.ult_outras != null && o.ultimo_voto != null ? (o.ultimo_voto - o.ult_outras) * 60 : null) },
+    { k: "votos_apos_17", rot: "Votos depois das 17h", val: (o) => o.votos_apos_17 },
+    { k: "zona_tarde", rot: "Seções da zona até depois das 19h (%)", val: (o) => div(o.zona_19, o.zona_log) },
+    { k: "aptos", rot: "Eleitores aptos", val: (o) => o.aptos },
+    { k: "local", rot: "Município e seção", val: (o) => `${o.uf} ${o.mun_nome} ${String(o.zona).padStart(4, "0")} ${String(o.secao).padStart(4, "0")}` },
+  ];
+  const dado = (rot, valor, sub, forte) => `<div class="dado${forte ? " forte" : ""}"><dt>${rot}</dt><dd>${valor}${sub ? `<small>${sub}</small>` : ""}</dd></div>`;
+  const cartao = (o) => {
+    const cz = contextoZona(o), ks = atipDe(o);
+    return `<header><h3>Seção ${o.secao} <span class="sub">Zona ${o.zona}</span></h3><p class="onde">${esc(o.mun_nome ?? "")} (${esc(o.uf)})</p></header>
+      <p class="local">${esc(o.escola ?? "Local não informado")}${o.bairro ? `<span class="sub">${esc(o.bairro)}</span>` : ""}</p>
+      <div class="cartao-selos">${selosDe([...ks, ...tagsDe(o).filter((k) => !ks.includes(k))])}${crit(o.flags) || temConc(o) ? selos(crit(o.flags) | (temConc(o) ? 8 : 0)) : ""}</div>
+      <dl class="dados">
+        ${dado("Votos fora do log", o.fora_log > 0 ? `${n(o.fora_log)} <span class="pct">(${p(div(o.fora_log, o.comparecimento), 0)})</span>` : n(Math.max(0, o.fora_log ?? 0)), `log: ${n(o.votos_log)} de ${n(o.comparecimento)} oficiais`, ks.includes("fora"))}
+        ${dado("Urna pronta às", hora(o.abertura), "votação começa às 8h", ks.includes("tarde"))}
+        ${dado("Último voto", hora(o.ultimo_voto), o.ult_outras != null ? `outras do local: ${hora(o.ult_outras)}` : "única seção do local com log", ks.includes("sozinha"))}
+        ${dado("Votos após 17h", `${n(o.votos_apos_17)} <span class="pct">(${p(o.pct_apos_17)})</span>`, o.v17_outras != null ? `outras: ${dec(o.v17_outras, 1)} em média` : "", ks.includes("sozinha"))}
+        ${tagsDe(o, "lib").length && o.man17 != null ? dado("Liberados pelo mesário após 17h", `${n(o.man17)} <span class="pct">(${p(div(o.man17, o.cad17))})</span>`, `de ${n(o.cad17)} com digital; antes, ${p(div(o.man_dia, o.cad_dia))}`, true) : ""}
+        ${dado("Zona até tarde", cz ? `${n(o.zona_19)} de ${n(o.zona_log)} <span class="pct">(${p(cz.f, 0)})</span>` : "—", cz ? (cz.nivel === 2 ? "seções da zona após 19h: zona votou até tarde" : "seções da zona após 19h") : "", cz?.nivel === 2)}
+        ${dado("Eleitores aptos", n(o.aptos), o.aptos_outras != null ? `outras do local: ${n(o.aptos_outras)}` : "")}
+      </dl>`;
+  };
+  ligarTri(el, filtrar);
+  $$("input", el).forEach((i) => i.addEventListener(i.type === "search" ? "input" : "change", filtrar));
   filtrar();
 };
 
@@ -578,7 +811,7 @@ TELAS.apos17 = async (el) => {
   else if (E.mun) ss = secoesDe(await D.mun(E.mun), "top17");
   else if (E.uf) ss = secoesDe(await D.uf(E.uf), "top17");
   else ss = secoesDe(await D.apos17());
-  tabela($("#s17"), {
+  cartoesSecao($("#s17"), {
     colunas: [
       { k: "secao", rot: "Seção", html: (o) => `<span class="forte">Seção ${o.secao}</span><span class="sub">Zona ${o.zona}</span>`, ord: (o) => o.zona * 1e5 + o.secao },
       { k: "zona", rot: "Zona", oculto: true },
@@ -841,7 +1074,7 @@ async function maisConcentrado(el, nota, X, P, secoes, L) {
     { rotulo: "Também com poucos brancos e nulos", valor: n(loc.com_bn) },
     { rotulo: "As três coisas juntas", valor: n(loc.tudo), destaque: loc.tudo > 0 },
   ]) + `<p class="nota" style="margin:12px 0">Na aba <a href="${link({ tela: "atencao" })}${link({ tela: "atencao" }).includes("?") ? "&" : "?"}crit=conc">Seções em atenção</a>, marque "Voto concentrado" para somar este critério aos outros três.${E.uf ? "" : " A lista abaixo mostra as 300 seções mais fortes do país; escolha um estado para ver todas."}</p><div id="t-conc"></div>`;
-  tabela($("#t-conc"), {
+  cartoesSecao($("#t-conc"), {
     colunas: [colSecao, colZona, colLocal,
       { k: "conc_nome", rot: "Candidato", html: (o) => `<span class="forte">${esc(nomeCand(o.conc_nome))}</span><span class="sub">${esc(CARGOS_CONC[o.conc_cargo] ?? "")}</span>`, csv: (o) => o.conc_nome },
       { k: "conc_votos", rot: "Votos dele na seção", num: true, html: (o) => `<span class="forte">${n(o.conc_votos)}</span><span class="sub">${p(o.conc_fatia)} de ${n(o.conc_validos)} válidos</span>` },
@@ -870,7 +1103,7 @@ async function maisPerfil(el, nota, X, P, secoes, L) {
     { rotulo: "Abstenção baixa explicada pela idade", valor: expl("abst"), sub: "seções do Brasil, no rigor atual", destaque: true },
     ...(R[`${E.nivel}_man`] != null && cm.pct_70 != null ? [{ rotulo: "Liberação manual explicada pela idade", valor: expl("man"), sub: "seções do Brasil, no rigor atual" }] : []),
   ]) + `<p class="nota" style="margin:12px 0">Nos dados, cada 10 pontos percentuais a mais de eleitores com 70+ (em relação ao município) aumentam a abstenção esperada em ${dec((ca.pct_70 ?? 0) * 10, 1)} pontos${ca.pct_16_17 != null ? `; cada 10 pontos a mais de eleitores de 16–17 anos, em ${dec(ca.pct_16_17 * 10, 1)} pontos` : ""}.${cm.pct_70 != null ? ` Na liberação manual, cada 10 pontos a mais de idosos somam ${dec(cm.pct_70 * 10, 1)} pontos ao esperado.` : ""} Abaixo, as seções em atenção cujo destaque a idade explica. Na aba Seções em atenção dá para escondê-las.</p><div id="t-perfil"></div>`;
-  tabela($("#t-perfil"), {
+  cartoesSecao($("#t-perfil"), {
     colunas: [colSecao, colZona, colLocal,
       { k: "pct_70", rot: "Eleitores 70+", num: true, html: (o) => `${p(o.pct_70)}<span class="sub">${n(o.aptos * o.pct_70)} pessoas</span>` },
       { k: "taxa_abstencao", rot: "Abstenção", num: true, html: (o) => `${p(o.taxa_abstencao)}<span class="sub">esperado ${p(o.taxa_esperada)}</span>` },
@@ -954,7 +1187,7 @@ async function maisRepeticao(el, nota, X, P, secoes, L) {
   if (T) {
     const ls = listaSecoes(L, "lista_turnos", (s) => (s.z_comp_turnos ?? 0) >= 3);
     el.insertAdjacentHTML("beforeend", `<h3 style="margin:24px 0 8px">1º e 2º turno</h3><p class="nota">Compareceram ${n(T.comp_t1)} eleitores no 1º turno e ${n(T.comp_t2)} no 2º. ${plural(T.secoes_sobe, "seção teve", "seções tiveram")} o comparecimento subindo pelo menos ${p(T.dif, 0)} e muito mais que o resto do município${T.apos17_so_t2 != null ? `; ${plural(T.apos17_so_t2, "seção teve", "seções tiveram")} 10 ou mais votos depois das 17h só no 2º turno` : ""}. Útil também para medir o efeito da presença de fiscais.</p><div id="t-turnos" style="margin-top:12px"></div>`);
-    tabela($("#t-turnos"), {
+    cartoesSecao($("#t-turnos"), {
       colunas: [colSecao, colZona, colLocal,
         { k: "taxa_comp_t1", rot: "Comparecimento 1º turno", num: true, html: (o) => p(o.taxa_comp_t1) },
         { k: "taxa_comp_t2", rot: "2º turno", num: true, html: (o) => p(o.taxa_comp_t2) },
@@ -987,7 +1220,7 @@ async function maisContexto(el, nota, X, P, secoes, L) {
   if (C.transferencia) {
     const ls = listaSecoes(L, "lista_transf", (s) => (s.transf_recebidos ?? 0) >= 20);
     $("#t-transf").innerHTML = `<h3 style="margin-bottom:8px">Seções que mais receberam eleitores transferidos</h3><div id="t-transf-l"></div>`;
-    tabela($("#t-transf-l"), {
+    cartoesSecao($("#t-transf-l"), {
       colunas: [colSecao, colZona, colLocal,
         { k: "transf_recebidos", rot: "Transferidos", num: true, html: (o) => `<span class="forte">${n(o.transf_recebidos)}</span><span class="sub">${p(div(o.transf_recebidos, o.aptos))} dos aptos</span>` },
         { k: "taxa_abstencao", rot: "Abstenção", num: true, html: (o) => `${p(o.taxa_abstencao)}<span class="sub">esperado ${p(o.taxa_esperada)}</span>` },
@@ -1056,7 +1289,7 @@ async function maisSinais(el, nota, X, P, secoes, L) {
     { k: "maior_seq_rapida", rot: "Maior sequência rápida", num: true, html: (o) => `<span class="forte">${n(o.maior_seq_rapida)} votos</span><span class="sub">${o.seq_rapida_inicio != null ? `a partir das ${hora(o.seq_rapida_inicio)}` : ""}</span>` }]);
   el.innerHTML = blocos.map(([id, t, txt]) => `<h3 style="margin:18px 0 6px">${t}</h3><p class="nota">${txt}</p><div id="t-${id}" style="margin-top:10px"></div>`).join("");
   for (const [id, , , chave, f, col] of blocos) {
-    tabela($(`#t-${id}`), {
+    cartoesSecao($(`#t-${id}`), {
       colunas: [colSecao, colZona, colLocal, col, colCrit], linhas: listaSecoes(L, chave, f),
       ordem: { k: col.k, desc: true }, aoClicar: abrirSecao, limite: 20, arquivo: `${chave.replace("lista_", "")}_${E.uf || "BR"}.csv`,
       vazio: "Nenhuma seção com este sinal neste recorte.",
@@ -1254,11 +1487,18 @@ TELAS["como-ler"] = async (el) => {
     <p>Quando a votação por candidato está disponível, existe um quarto critério, que só conta se você marcar na aba Seções em atenção: um candidato a deputado teve na seção uma fatia dos votos válidos muito acima da que teve no resto do município. Reduto eleitoral é comum (o bairro do candidato), então ele pesa mais junto com abstenção muito baixa e poucos brancos e nulos. Veja a aba <a href="${link({ tela: "mais" })}">Mais análises</a>.</p>
     ${D.brasil.meta.lib ? `<h2>Tags: liberações pelo mesário ao longo do dia</h2>
     <p>Três destaques à parte, que <strong>não entram na contagem dos critérios</strong>, mas podem ser filtrados na aba Seções em atenção:</p>
-    <ul><li><strong>Mesário após 17h</strong>: ${n(D.brasil.meta.lib.limites.rigoroso.min17)}, ${n(D.brasil.meta.lib.limites.padrao.min17)} ou ${n(D.brasil.meta.lib.limites.amplo.min17)} eleitores ou mais com digital cadastrada liberados pelo mesário depois das 17h, conforme o rigor.</li>
+    <ul><li><strong>Liberados pelo mesário após 17h</strong>: ${n(D.brasil.meta.lib.limites.rigoroso.min17)}, ${n(D.brasil.meta.lib.limites.padrao.min17)} ou ${n(D.brasil.meta.lib.limites.amplo.min17)} eleitores ou mais com digital cadastrada liberados pelo mesário depois das 17h, conforme o rigor.</li>
       <li><strong>Salto às 17h</strong>: pelo menos ${n(D.brasil.meta.lib.salto_min)} liberações depois das 17h, numa taxa muito acima da que a própria seção teve durante o dia (${p(D.brasil.meta.lib.limites.rigoroso.salto, 0)}, ${p(D.brasil.meta.lib.limites.padrao.salto, 0)} ou ${p(D.brasil.meta.lib.limites.amplo.salto, 0)} a mais, conforme o rigor), e sem que a alta tenha começado antes das 17h. No fim do dia a mesa já sabe quem faltou; por isso esse padrão pede um olhar na ata.</li>
       <li><strong>Leitor com defeito provável</strong>: ${p(D.brasil.meta.lib.defeito_taxa, 0)} ou mais de quem tem digital liberado pelo mesário, o dia todo ou a partir de alguma hora antes das 17h (com até ${p(D.brasil.meta.lib.defeito_antes, 0)} antes disso). Quase sempre é equipamento, e explica muitas seções com liberação manual alta.</li></ul>
     ${(() => { const T = D.brasil.total, t17 = div(T.man17, T.cad17), td = div(T.votos_manual - T.man17, T.votos_log - T.votos_sem_cadastro - T.cad17);
       return t17 != null && td != null ? `<p>No Brasil, depois das 17h, ${plural(T.man17, "eleitor com digital foi liberado", "eleitores com digital foram liberados")} pelo mesário (${p(t17)} de quem tinha digital nesse horário); antes das 17h, ${p(td)}. ${t17 < td ? "Ou seja, no país a liberação pelo mesário é proporcionalmente <em>menor</em> no fim do dia (de manhã votam mais idosos, que têm mais falha de digital). O que chama atenção é a seção que destoa disso." : "O que chama atenção é a seção que destoa muito da própria taxa durante o dia."}</p>` : ""; })()}` : ""}
+    ${D.brasil.meta.atip ? (() => { const m = D.brasil.meta.atip, T = D.brasil.total; return `<h2>Casos extremamente atípicos</h2>
+    <p>A aba <a href="${link({ tela: "atipicos" })}">Casos extremamente atípicos</a> lista padrões raros no horário e na conta de votos da urna. São tags: <strong>não entram na contagem dos critérios</strong> e não mudam com o rigor. A lista começa pelas seções que reúnem mais de um padrão diferente (votos fora do log junto com urna que começou tarde contam como um só: é a mesma troca de urna).</p>
+    <ul><li><strong>Votos fora do log</strong>: o comparecimento oficial tem ${n(m.fora_min)} votos ou mais que não aparecem no log publicado da urna. No Brasil: ${plural(T.atip_fora, "seção", "seções")}, ${n(T.fora_votos)} votos. A explicação comum é troca de urna durante o dia. Conferimos o boletim de urna e o registro dos votos dessas seções: os dois trazem todos os votos e batem com o resultado oficial; o que não foi publicado é o log da primeira urna.</li>
+      <li><strong>Urna começou tarde</strong>: a urna do log só ficou pronta para o primeiro eleitor das ${n(m.tarde_hora)}h em diante, no horário de Brasília. No Brasil: ${plural(T.atip_tarde, "seção", "seções")}. Costuma ser urna substituída.</li>
+      <li><strong>Terminou sozinha</strong>: o último voto foi ${n(m.soz_min)} minutos ou mais depois do último voto de todas as outras seções do mesmo local, com ${n(m.soz_votos17)} votos ou mais depois das 17h, enquanto as outras tiveram no máximo ${n(m.soz_outras17)} em média. Só vale em local com ${n(m.soz_secoes)} seções ou mais, sem seção agregada e com número de eleitores parecido com o das vizinhas (menos de ${dec(m.soz_aptos, 1)} vez a média delas). No Brasil: ${plural(T.atip_soz, "seção", "seções")}.</li>
+      <li><strong>Salto às 17h</strong>: a tag descrita acima também entra nesta lista.</li></ul>
+    <p><strong>Zona que votou até tarde.</strong> Em cada caso mostramos quantas seções da mesma zona eleitoral tiveram o último voto depois das ${n(m.zona_hora)}h. No país isso é raro: ${n(m.zonas_sem_19)} das ${n(m.zonas)} zonas não tiveram nenhuma seção assim, e só ${n(m.zonas_tarde)} chegaram a ${p(m.zona_alta, 0)} das seções. Quando a zona passa disso, o mais provável é congestionamento em toda a zona, e a seção deve ser lida assim. Testamos e deixamos de fora padrões que se mostraram comuns no país, como seções em que o ritmo não cai depois das 17h.</p>`; })() : ""}
     <h2>Sinais no log da urna</h2>
     <p>No detalhe de cada seção listamos fatos objetivos do log que ajudam a separar fila de algo estranho: urna parada antes das 17h e depois com votos, maioria dos votos tardios sem digital, ritmo muito rápido depois das 17h, sequências de liberações manuais, urna substituída, abertura atrasada e diferença entre o log e o comparecimento oficial.</p>
     <h2>Mais análises</h2>
@@ -1320,7 +1560,7 @@ async function abrirSecao(s) {
     <p class="onde"><strong>${esc(s.escola ?? "Local de votação não informado")}</strong><br>${esc([s.endereco, s.bairro, s.cep ? `CEP ${s.cep}` : null].filter(Boolean).join(", "))}${s.endereco || s.bairro ? "<br>" : ""}${esc(mun.mun_nome ?? "")} (${esc(s.uf)})</p>
     <div class="acoes"><a class="botao" href="${mapsUrl({ ...s, mun_nome: mun.mun_nome })}" target="_blank" rel="noopener">Abrir no mapa</a>
       <a class="botao" href="${link({ tela: "panorama", uf: s.uf, mun: s.cd_municipio, zona: s.zona })}" data-fechar>Ver a zona ${s.zona}</a></div>
-    <div style="margin:14px 0 16px">${c || temConc(s) ? selos(c | (temConc(s) ? 8 : 0)) : `<span class="nota">Não cumpre nenhum critério no rigor atual.</span>`}${temConc(s) ? ` <span class="sub" style="display:inline">voto concentrado é o 4º critério, opcional</span>` : ""}</div>
+    <div style="margin:14px 0 16px">${c || temConc(s) ? selos(c | (temConc(s) ? 8 : 0)) : `<span class="nota">Não cumpre nenhum critério no rigor atual.</span>`}${temConc(s) ? ` <span class="sub" style="display:inline">voto concentrado é o 4º critério, opcional</span>` : ""}${atipDe(s).length ? ` ${selosDe(atipDe(s))}` : ""}</div>
     ${numeros([
       { rotulo: "Eleitores aptos", valor: n(s.aptos) },
       { rotulo: "Compareceram", valor: n(s.comparecimento), sub: p(1 - s.taxa_abstencao) },
@@ -1360,13 +1600,26 @@ async function abrirSecao(s) {
 // cartões com os dados das fontes opcionais (Mais análises), no detalhe da seção
 function achadosExtras(s, mun) {
   const out = [];
+  const ka = atipDe(s);
+  if (ka.length) {  // casos extremamente atípicos: os números de cada padrão e o contexto da zona
+    const t = [];
+    if (ka.includes("fora")) t.push(`<p><strong>Votos fora do log.</strong> O resultado oficial registra <strong>${n(s.comparecimento)} eleitores</strong> que compareceram, mas o log publicado da urna tem ${n(s.votos_log)} votos. Ficaram fora do log <strong>${n(s.fora_log)} votos</strong> (${p(div(s.fora_log, s.comparecimento), 0)} do comparecimento). A explicação comum é troca de urna durante o dia: o boletim de urna desta seção traz todos os votos e bate com o resultado oficial; o que não foi publicado é o log da primeira urna. A ata da seção deve registrar a troca.</p>`);
+    if (ka.includes("tarde")) t.push(`<p><strong>Urna começou tarde.</strong> A urna deste log só ficou pronta para o primeiro eleitor às <strong>${hora(s.abertura)}</strong> (horário de Brasília; a votação começa às 8h)${s.votos_log != null ? ` e registrou ${plural(s.votos_log, "voto", "votos")}` : ""}. Costuma ser urna substituída: os votos anteriores foram registrados na primeira urna, cujo log não foi publicado.</p>`);
+    if (ka.includes("sozinha")) t.push(`<p><strong>Terminou sozinha.</strong> O último voto foi às <strong>${hora(s.ultimo_voto)}</strong>, ${n((s.ultimo_voto - s.ult_outras) * 60)} minutos depois do último voto das outras ${n(s.local_com_log - 1)} seções do mesmo local (${hora(s.ult_outras)}). Depois das 17h esta seção teve <strong>${n(s.votos_apos_17)} votos</strong> (${p(s.pct_apos_17)} dos ${n(s.votos_log)}); as outras, em média, ${dec(s.v17_outras, 1)}. Ela tem ${n(s.aptos)} eleitores aptos e as outras, em média, ${n(s.aptos_outras)}; não recebeu seção agregada. Ou seja, não foi fila da escola nem excesso de eleitores na mesma urna.</p>`);
+    if (ka.includes("salto")) t.push(`<p><strong>Salto às 17h.</strong> Depois das 17h, ${n(s.man17)} de ${n(s.cad17)} eleitores com digital (${p(div(s.man17, s.cad17))}) foram liberados pelo mesário; antes, ${n(s.man_dia)} de ${n(s.cad_dia)} (${p(div(s.man_dia, s.cad_dia))}). Veja o quadro hora a hora abaixo.</p>`);
+    const cz = contextoZona(s);
+    if (cz) t.push(`<p class="contexto-zona"><strong>Contexto da zona ${s.zona}:</strong> ${n(s.zona_19)} das ${n(s.zona_log)} seções (${p(cz.f, 0)}) tiveram o último voto depois das 19h. ${(() => { const A = D.brasil.meta.atip, ref = A.zonas ? ` No país, ${n(A.zonas_sem_19)} das ${n(A.zonas)} zonas não tiveram nenhuma seção assim, e só ${n(A.zonas_tarde)} chegaram a ${p(A.zona_alta, 0)}.` : ""; return cz.nivel === 2 ? `<strong>A zona votou até bem mais tarde que o normal.</strong>${ref} O mais provável é congestionamento (fila ou problema com as urnas em toda a zona), e esta seção deve ser lida assim.` : `A zona, no geral, terminou no horário: o que aconteceu aqui é desta seção.${ref}`; })()}</p>`);
+    out.push(`<div class="achado ${TAGS[ka[0]].classe}"><h3>Caso extremamente atípico${nAtip(s) > 1 ? `: ${nAtip(s)} padrões diferentes juntos` : ""}</h3>
+      <p>${selosDe(ka)}</p>${t.join("")}
+      <p class="nota">Não é prova de irregularidade e não conta como critério. O caminho é pedir a ata da mesa receptora ao cartório da zona: ela registra troca de urna e fila.</p></div>`);
+  }
   if (s.horas_man) {  // liberações pelo mesário hora a hora (horário de Brasília)
     const M = String(s.horas_man).split(" ").map(Number), C = String(s.horas_cad).split(" ").map(Number);
     const fx = D.brasil.meta.faixas;
     const cel = fx.map((h, i) => (C[i] ? `<li class="${h >= 17 ? "tarde" : ""} ${C[i] && M[i] / C[i] >= 0.5 ? "alta" : ""}"><span class="h">${ROT_FAIXA(h)}</span><span class="v">${n(M[i])} de ${n(C[i])}</span></li>` : "")).join("");
-    const ks = tagsDe(s);
+    const ks = tagsDe(s, "lib");
     out.push(`<div class="achado ${ks.includes("salto") ? "cor-salto" : ks.includes("defeito") ? "cor-defeito" : ks.length ? "cor-lib17" : ""}"><h3>Liberações pelo mesário, hora a hora</h3>
-      ${ks.length ? `<p>${selosTags(s)}</p>` : ""}
+      ${ks.length ? `<p>${selosDe(ks)}</p>` : ""}
       <p>Eleitores com digital cadastrada liberados pelo mesário em cada hora (horário de Brasília). Depois das 17h: <strong>${n(s.man17)} de ${n(s.cad17)}</strong> (${p(div(s.man17, s.cad17))}); antes: ${n(s.man_dia)} de ${n(s.cad_dia)} (${p(div(s.man_dia, s.cad_dia))}).</p>
       <ul class="por-hora">${cel}</ul>
       <p class="nota">Leitor com defeito costuma falhar com quase todos de uma hora em diante. Fila com muitos idosos aumenta as liberações aos poucos. Uma virada brusca exatamente às 17h é o que mais pede um olhar na ata.</p></div>`);
@@ -1455,7 +1708,7 @@ function desenharMetodo() {
           <li><strong>Muitos votos depois das 17h:</strong> pelo menos ${p(nv.p17, 0)} dos votos e ${n(m.min_votos_17)} pessoas, terminando bem depois das outras seções da mesma escola (escola inteira atrasada costuma ser fila).</li>
           <li><strong>Muitas liberações pelo mesário:</strong> eleitores com digital cadastrada liberados sem a digital, muito acima do resto do município.</li></ul>
         <p>O seletor <strong>Rigor</strong>, no alto, deixa as regras mais ou menos exigentes.</p>
-        ${m.lib ? `<p><strong>Tags</strong> (não contam como critério): liberações pelo mesário depois das 17h (${n(m.lib.limites[E.nivel].min17)} ou mais), <strong>salto às 17h</strong> (o leitor reconhecia a maioria durante o dia e, a partir das 17h, a maior parte foi liberada pelo mesário) e leitor com defeito provável.</p>` : ""}</div>
+        ${m.lib ? `<p><strong>Tags</strong> (não contam como critério): liberações pelo mesário depois das 17h (${n(m.lib.limites[E.nivel].min17)} ou mais), <strong>salto às 17h</strong> (o leitor reconhecia a maioria durante o dia e, a partir das 17h, a maior parte foi liberada pelo mesário) e leitor com defeito provável.${m.atip ? ` <strong>Casos extremamente atípicos</strong>: ${n(m.atip.fora_min)} ou mais votos fora do log da urna, urna que só começou depois das ${n(m.atip.tarde_hora)}h e seção que terminou sozinha, muito depois das outras do mesmo local.` : ""}</p>` : ""}</div>
       <div><h3>Como sabemos quem tem digital cadastrada</h3>
         <p>A urna leva o cadastro do TSE e <strong>só pede a digital de quem tem digital cadastrada</strong>. O log registra cada pedido (“Solicita digital, tentativa 1 de 4”).</p>
         <p>Quem não tem digital cadastrada é liberado pelo ano de nascimento, sem nenhum pedido de digital. <strong>Liberado pelo mesário</strong> é quem tem digital cadastrada: a urna tentou 4 vezes, não reconheceu, e o mesário liberou depois de conferir um dado pessoal.</p></div>

@@ -43,6 +43,7 @@ import py7zr
 
 rng = np.random.default_rng(42)
 rng_lib = np.random.default_rng(2026)  # casos de liberação pelo mesário: sorteio à parte, não muda os outros casos
+rng_atip = np.random.default_rng(1932)  # casos extremamente atípicos: idem
 PASTA = Path(__file__).parent / "dados"
 UFS = {"SP": 0.225, "CE": 0.153, "MG": 0.226, "MS": 0.238, "RJ": 0.233}
 FUSO = {"MS": -1}  # urnas do MS marcam 1h a menos (abrem às 7h locais)
@@ -118,7 +119,7 @@ def hms(t):
     return f"{t // 3600:02d}:{t % 3600 // 60:02d}:{t % 60:02d}"
 
 
-def montar_log(mun, zona, secao, votos, hab, fuso, id_urna, extras_teste=True):
+def montar_log(mun, zona, secao, votos, hab, fuso, id_urna, extras_teste=True, abertura=8 * 3600 + 2):
     L = []
     d0 = (DIA - timedelta(days=12)).strftime("%d/%m/%Y")
     d = DIA.strftime("%d/%m/%Y")
@@ -130,9 +131,9 @@ def montar_log(mun, zona, secao, votos, hab, fuso, id_urna, extras_teste=True):
             ap(d0, (10 * 3600) + t * 120, "VOTA", "Aguardando digitação do título")
             ap(d0, (10 * 3600) + t * 120 + 60, "VOTA", "O voto do eleitor foi computado")
     s = fuso * 3600
-    ap(d, 7 * 3600 + 1800 + s, "VOTA", "Iniciando aplicação - Oficial - 1º turno")
-    ap(d, 7 * 3600 + 2200 + s, "VOTA", "Gerando relatório [ZERÉSIMA] [INÍCIO]")
-    ap(d, 8 * 3600 + 2 + s, "VOTA", "Aguardando digitação do título")
+    ap(d, abertura - 1802 + s, "VOTA", "Iniciando aplicação - Oficial - 1º turno")
+    ap(d, abertura - 1402 + s, "VOTA", "Gerando relatório [ZERÉSIMA] [INÍCIO]")
+    ap(d, abertura + s, "VOTA", "Aguardando digitação do título")
     for t, h in zip(votos, hab):
         t = t + s
         ap(d, t - 50, "VOTA", "Título digitado pelo mesário")
@@ -271,6 +272,22 @@ def main():
     loc = loc.rename(columns={"QT_APTOS": "QT_ELEITOR_SECAO"})
     loc, agregadas = secoes_agregadas(loc)
     loc.insert(0, "NR_TURNO", 1)
+
+    # casos extremamente atípicos: sorteio e coluna à parte ("atip"), como os de liberação
+    df["atip"] = ""
+    chave_loc = ["CD_MUNICIPIO", "NR_ZONA", "NR_LOCAL_VOTACAO"]
+    limpa = (df["tipo"] == "normal") & (df["lib"] == "") & ~df.index.isin(agregadas.index)
+    for tipo, qtd in [("fora_log", 4), ("urna_tarde", 4)]:
+        cand = df.index[limpa & (df["atip"] == "") & (df["QT_APTOS"] > 280)]
+        df.loc[rng_atip.choice(cand, qtd, replace=False), "atip"] = tipo
+    # "terminou sozinha": seção de tamanho parecido com as vizinhas, em local calmo com 4+ seções
+    g = df.assign(_limpa=limpa & (df["atip"] == "")).groupby(chave_loc)
+    calmo = (g["_limpa"].transform("all") & (g["NR_SECAO"].transform("size") >= 4)
+             & df["QT_APTOS"].between(150, 1.15 * g["QT_APTOS"].transform("mean")))
+    locais_calmos = df.loc[calmo, chave_loc].drop_duplicates().sample(5, random_state=11)
+    for r in locais_calmos.itertuples(index=False):
+        m = calmo & (df[chave_loc] == list(r)).all(axis=1)
+        df.loc[rng_atip.choice(df.index[m]), "atip"] = "sozinha"
     loc.insert(0, "AA_ELEICAO", 1999)
     buf = io.StringIO()
     loc.to_csv(buf, sep=";", index=False, decimal=",")
@@ -296,8 +313,19 @@ def main():
             df.at[r.Index, "QT_ABSTENCOES"] = r.QT_APTOS - comparec
         p_manual = float(np.clip(rng.normal(0.08, 0.025) + 0.4 * (r.s70 - 0.12), 0.01, 0.4))
         votos, hab = simular(comparec, r.lib or r.tipo, r.QT_APTOS, r.p_sem_cad, p_manual)
+        abertura = 8 * 3600 + 2
+        if r.atip == "fora_log":  # o log publicado só tem os votos até as 13h (urna trocada, 2º log não publicado)
+            m = votos < 13 * 3600
+            votos, hab = votos[m], hab[m]
+        elif r.atip == "urna_tarde":  # urna substituta: o log só tem os votos das 15h30 em diante
+            m = votos >= 15.5 * 3600
+            votos, hab = votos[m], hab[m]
+            abertura = int(15.5 * 3600) - 120
+        elif r.atip == "sozinha":  # os últimos 30 eleitores só votam entre 18h10 e 19h30 (as vizinhas já fecharam)
+            votos = np.concatenate([votos[:-30], 18 * 3600 + 600 + np.sort(rng_atip.integers(0, 4800, 30))])
         nome = f"o00999-{r.CD_MUNICIPIO:05d}{r.NR_ZONA:04d}{r.NR_SECAO:04d}"
-        texto = montar_log(r.CD_MUNICIPIO, r.NR_ZONA, r.NR_SECAO, votos, hab, FUSO.get(r.SG_UF, 0), 2000000 + i)
+        texto = montar_log(r.CD_MUNICIPIO, r.NR_ZONA, r.NR_SECAO, votos, hab, FUSO.get(r.SG_UF, 0), 2000000 + i,
+                           abertura=abertura)
         pendentes.append((r.SG_UF, nome, texto))
     print(f"Compactando {len(pendentes):,} logs…")
     with ProcessPoolExecutor() as ex:
@@ -323,7 +351,7 @@ def main():
     df["ANO_ELEICAO"] = 1999
     t2 = segundo_turno(df)
     gravar_detalhe(PASTA / "teste_detalhe_votacao_secao.zip", 1999, [(df, 1, CARGOS), (t2, 2, CARGOS[:2])])
-    df.assign(tipo=df["lib"].where(df["lib"] != "", df["tipo"]))[["SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_SECAO", "tipo"]] \
+    df.assign(tipo=df["lib"].where(df["lib"] != "", df["tipo"]))[["SG_UF", "CD_MUNICIPIO", "NR_ZONA", "NR_SECAO", "tipo", "atip"]] \
         .to_csv(PASTA / "teste_gabarito.csv", index=False)
     print(f"\n{len(df):,} seções sintéticas -> dados/teste_detalhe_votacao_secao.zip (1º e 2º turno) "
           "e dados/teste_arqurna_*.zip")

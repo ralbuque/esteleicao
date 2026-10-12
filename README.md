@@ -126,6 +126,7 @@ Veja [deploy/LEIAME_WINDOWS.md](deploy/LEIAME_WINDOWS.md). Resumo: no Mac,
 - **Mapa**: municípios pintados por seções em atenção, votos após 17h (quantidade ou %), abstenção baixa ou liberação manual. Num estado, mostra também os locais de votação em atenção (pelas coordenadas do TSE). Clicar num município lista as seções e os endereços.
 - **Votos após 17h**: quantidade e % por estado, município e zona; seções por faixa de quantidade; as seções com mais votos depois das 17h, com o horário do último voto e a comparação com as outras seções da mesma escola.
 - **Seções em atenção**: lista filtrável (critério, 2+ critérios, busca por escola/bairro/seção), exportável em CSV.
+- **Casos extremamente atípicos**: seções com 50+ votos fora do log publicado da urna, urna que só começou depois das 15h ou que terminou sozinha, muito depois das outras do mesmo local. São tags (fora da contagem dos critérios), em cartões, com filtros "tem / não tem" e ordenação à escolha.
 - **Plano de fiscalização**: locais de votação por prioridade (alta, média, baixa), com endereço, link para o mapa, seções a observar, eleitores, motivos e fiscais sugeridos; checklist do que observar em cada critério; imprimível e exportável.
 - **Detalhe da seção**: cada critério explicado em frases com os números, sinais do log, votos por hora comparados com o município, as outras seções da mesma escola e como verificar.
 

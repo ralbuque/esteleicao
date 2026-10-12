@@ -52,7 +52,7 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (pasta `perfil_eleitor_tte` do CDN). |
 | `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
 | `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (31 conferências). ATENÇÃO: grava em `dados/` e `web/dados/` (sobrescreve `populacao_2022.parquet`); rode numa cópia do projeto se houver dados reais. |
-| `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários). |
+| `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários, `t_manual`/`t_mesario`, `mesario_cod` = código EMBARALHADO do mesário, `urna`). Grava também `dados/urnas_<ano>_t<turno>_<UF>.parquet` (seção × log × urna com votos: votos, 1º e último voto). `--conferir` compara com `logs_*.parquet`. A chave do embaralhamento fica em `dados/.sal_mesario` (fora do git; nunca publicar chave nem código). |
 | `docs/analise-casos-atipicos.md` | Achados e fórmulas das análises de out/2026 (tempo de voto, liberação pelo mesário, casos atípicos de horário). |
 
 `dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
@@ -153,6 +153,33 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
   "Casos extremamente atípicos" (tags Votos fora do log, Urna começou tarde, Terminou sozinha + lista + contexto de zona) e,
   depois, os itens da Parte 2 (liberação seletiva × leitor com defeito, sem digital com foto, sem digital > cadastro,
   tempo de cabine no lugar de "votos rápidos"). Sempre mostrar os números nacionais ao usuário ANTES de publicar.
+- 12/out (noite, sessão num PC WINDOWS do usuário, `C:\Users\renato.franco\Documents\esteleicao`): esta máquina agora tem TODOS os dados
+  do 1º turno em `dados/` (56 GB: secoes, locais, votacao, perfil, populacao, transferencia, gastos, `logs_*`, `eleitores_*`, `urnas_*` e os
+  brutos `logs_brutos_2026_1t_<UF>.zip` das 27 UFs + ZZ; NÃO apagar os brutos). Python 3.13 em `.venv` (`.venv\Scripts\python.exe`);
+  no Windows rode com `$env:PYTHONUTF8='1'`. `gerar_site.py` leva ~21 min. `eleitores_urna.py` confere com `logs_urna` nas 28 unidades.
+- **Etapa 3 feita e publicada: "Casos extremamente atípicos"** (`extras.atipicos`, `flags_atip`: bit 0 votos fora do log ≥ 50, bit 1 urna
+  começou tarde ≥ 15h, bit 2 terminou sozinha; limites em `extras.ATIP`). Tags, FORA da contagem dos 3 critérios e iguais nos 3 níveis.
+  Aba própria (`TELAS.atipicos`), bloco no Panorama, cartão no detalhe com os números e o contexto de zona, filtro em Seções em atenção,
+  textos em Como ler e Como comparamos. Brasil: 1.281 seções com votos fora do log (169.230 votos), 358 urna tarde, 456 terminou
+  sozinha, 3 salto às 17h; união 1.718. Achados: toda "urna tarde" também tem "votos fora do log" (mesma troca de urna), por isso a
+  dupla conta como UM padrão (`extras.n_atipicos`, `nAtip` no app.js): 21 seções com 2+ padrões diferentes. Contexto de zona: seções da
+  zona com último voto depois das 19h; "zona votou até tarde" a partir de 5% (`ATIP["zona_alta"]`; 826 de 6.106 zonas; 4.418 não têm
+  nenhuma). Decisões do limite de 5% e da dupla foram propostas do assistente, aceitas sem objeção: confirmar se o usuário reclamar.
+- **Interface (pedidos do usuário em 12/out):** listas de SEÇÕES em cartões (`cartoes`, `cartoesSecao` no app.js, montados a partir das
+  mesmas colunas das tabelas/CSV), ordenação escolhida num seletor, filtros de três estados "= tem / ≠ não tem / tanto faz"
+  (`filtroTri`) para critérios e tags, filtros recolhidos no celular ("Mostrar filtros", com contagem dos que estão em uso), todos os
+  selos (critérios e tags) no cartão, selos empilhados em colunas numéricas. Tag "Mesário após 17h" passou a se chamar "Liberados pelo
+  mesário após 17h". Continuam em tabela as comparações (estados, municípios, zonas, plano, materialidade, cadastro, gastos, outras
+  seções da escola). Marcar dois filtros agora exige os dois (E), não um OU outro.
+- **Etapa 4 (amostragens, nada foi para o site; números em docs/analise-casos-atipicos.md, seção 6):** BU e RDV conferem com o oficial
+  em 3.216 de 3.216 seções e o tipo de liberação do BU bate com a nossa leitura do log; votos fora do log = troca de urna (o BU tem
+  todos os votos); nenhuma urna com votos em duas seções; mesmo mesário em 2+ seções: 117 de 695.124; dado que não conferiu: 1,36%
+  (erro de digitação corrigido); liberação rápida: mínimo 4 s, nada impossível. Nenhum item justificou tag nova.
+- Teste sintético: 36/36 (`testar_sem_internet.py`, rodar numa CÓPIA do projeto; casos novos sorteados com `rng_atip`).
+- PENDENTE: Parte 2 do documento (liberação seletiva × leitor com defeito, sem digital com foto, sem digital > cadastro, tempo de cabine
+  no lugar de "votos rápidos"). Ideias em aberto com o usuário: frase "o leitor voltou a funcionar às Xh" no detalhe; linha no detalhe
+  para "dado não conferiu na 1ª tentativa"; trocar o texto do sinal "urna substituída" (nunca dispara em 2026: cada seção tem um só log
+  e uma só urna); usar o BU para preencher digital/sem digital/mesário nas seções com log incompleto.
 - PRÓXIMO também: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).
 - Publicar no Mac: `publicar_pages.ps1` precisa do PowerShell (`brew install powershell`, depois `pwsh deploy/publicar_pages.ps1`).
 

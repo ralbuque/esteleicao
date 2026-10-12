@@ -59,6 +59,17 @@ DEFEITO_TAXA = 0.80         # leitor com defeito provável: 80%+ de quem tem dig
 DEFEITO_ANTES = 0.30        # ... e, se começou no meio do dia, até 30% antes disso
 DEFEITO_MIN = 20            # ... com pelo menos 20 eleitores com digital no período ruim
 BIT_DEFEITO = 6             # flags_lib: bits 0-2 depois das 17h, 3-5 salto às 17h (por nível), 6 leitor com defeito
+# casos extremamente atípicos (tags; não contam como critério). Regras em docs/analise-casos-atipicos.md, seção 5
+ATIP = {"fora_min": 50,          # votos fora do log: comparecimento oficial − votos no log
+        "tarde_hora": 15.0,      # urna começou tarde: 1ª vez pronta para o eleitor (Brasília)
+        "soz_min": 60,           # terminou sozinha: minutos depois da última OUTRA seção do local
+        "soz_secoes": 3,         # ... local com pelo menos 3 seções (com log)
+        "soz_outras17": 5.0,     # ... as outras seções do local com até 5 votos após 17h em média
+        "soz_votos17": 20,       # ... e esta com 20 ou mais
+        "soz_aptos": 1.3,        # ... sem ser bem maior que as vizinhas (aptos < 1,3 × a média delas)
+        "zona_hora": 19.0,       # contexto: seções da zona com último voto depois das 19h
+        "zona_alta": 0.05}       # ... a zona "votou até tarde" quando são 5% ou mais (metade das zonas do país não tem nenhuma)
+BIT_FORA, BIT_TARDE, BIT_SOZINHA = 0, 1, 2   # flags_atip
 
 
 def bit(s: pd.Series, i: int) -> pd.Series:
@@ -744,4 +755,90 @@ def resumo_liberacoes(df: pd.DataFrame, niveis) -> dict:
         a, s = bit(f, i) > 0, bit(f, 3 + i) > 0
         out[nome] = {"apos17": int(a.sum()), "apos17_lib": int(df.loc[a, "man17"].sum()),
                      "salto": int(s.sum()), "salto_lib": int(df.loc[s, "man17"].sum())}
+    return out
+
+
+# ================================================================ casos extremamente atípicos
+def atipicos(df: pd.DataFrame) -> pd.DataFrame:
+    """Tags de casos extremamente atípicos (não mudam os 3 critérios). Grava em df:
+      fora_log               comparecimento oficial − votos no log (só seções com log)
+      ult_outras             último voto (Brasília) entre as OUTRAS seções do mesmo local
+      v17_outras, aptos_outras   média de votos após 17h e de aptos das outras seções do local
+      local_com_log          seções do local com log
+      zona_19, zona_log      seções da zona com último voto depois das 19h; seções da zona com log
+      flags_atip             bit 0 votos fora do log; bit 1 urna começou tarde; bit 2 terminou sozinha"""
+    if "votos_log" not in df or "ultimo_voto" not in df:
+        return df
+    P = ATIP
+    tem = df["tem_log"].astype(bool) & (df["votos_log"].fillna(0) >= 0)
+    df["fora_log"] = (df["comparecimento"] - df["votos_log"]).where(tem)
+    fora = tem & (df["fora_log"] >= P["fora_min"])
+    tarde = tem & (df["abertura"] >= P["tarde_hora"])
+
+    # outras seções do mesmo local (só as que têm log e algum voto)
+    com = tem & (df["votos_log"] > 0) & df["local"].notna()
+    d = df.loc[com, ["uf", "cd_municipio", "zona", "local", "ultimo_voto", "votos_apos_17", "aptos"]].copy()
+    d["votos_apos_17"] = d["votos_apos_17"].fillna(0)
+    g = d.groupby(["uf", "cd_municipio", "zona", "local"], observed=True, sort=False)
+    nloc = g["ultimo_voto"].transform("size")
+    mx = g["ultimo_voto"].transform("max")
+    # o 2º maior último voto do local (para a seção que é a última, "as outras" terminam nele)
+    seg = d["ultimo_voto"].where(d["ultimo_voto"] < mx).groupby([d[c] for c in ["uf", "cd_municipio", "zona", "local"]],
+                                                              observed=True, sort=False).transform("max")
+    empate = (d["ultimo_voto"] == mx).groupby([d[c] for c in ["uf", "cd_municipio", "zona", "local"]],
+                                              observed=True, sort=False).transform("sum") > 1
+    ult_outras = mx.where((d["ultimo_voto"] < mx) | empate, seg)
+    outras = (nloc - 1).where(nloc > 1)
+    v17_outras = (g["votos_apos_17"].transform("sum") - d["votos_apos_17"]) / outras
+    aptos_outras = (g["aptos"].transform("sum") - d["aptos"]) / outras
+    for nome, v in [("ult_outras", ult_outras), ("v17_outras", v17_outras), ("aptos_outras", aptos_outras),
+                    ("local_com_log", nloc)]:
+        df[nome] = v.reindex(df.index)
+    agreg = df["n_agregadas"].fillna(0) > 0 if "n_agregadas" in df else pd.Series(False, index=df.index)
+    sozinha = (com & (df["local_com_log"] >= P["soz_secoes"])
+               & ((df["ultimo_voto"] - df["ult_outras"]) * 60 >= P["soz_min"])
+               & (df["v17_outras"] <= P["soz_outras17"]) & (df["votos_apos_17"] >= P["soz_votos17"])
+               & ~agreg & (df["aptos"] < P["soz_aptos"] * df["aptos_outras"]))
+
+    # contexto: a zona inteira votou até tarde?
+    z = df.loc[tem & (df["votos_log"] > 0), ["cd_municipio", "zona", "ultimo_voto"]]
+    gz = (z["ultimo_voto"] >= P["zona_hora"]).groupby([z["cd_municipio"], z["zona"]], observed=True)
+    ctx = pd.DataFrame({"zona_19": gz.sum(), "zona_log": gz.size()}).reset_index()
+    df = df.drop(columns=[c for c in ["zona_19", "zona_log"] if c in df]).merge(ctx, on=["cd_municipio", "zona"], how="left")
+    df["flags_atip"] = (fora.fillna(False).to_numpy().astype(np.int64) << BIT_FORA
+                        | tarde.fillna(False).to_numpy().astype(np.int64) << BIT_TARDE
+                        | sozinha.fillna(False).to_numpy().astype(np.int64) << BIT_SOZINHA)
+    return df
+
+
+def n_atipicos(df: pd.DataFrame, i_nivel: int) -> pd.Series:
+    """Quantos padrões extremamente atípicos a seção reúne (os de flags_atip + 'salto às 17h' do nível).
+    'Votos fora do log' e 'urna começou tarde' juntos contam como UM: nos dados reais de 2026 toda urna que
+    começou tarde também tem votos fora do log (é a mesma troca de urna)."""
+    f = df["flags_atip"].fillna(0).astype("int64")
+    q = np.maximum(bit(f, BIT_FORA), bit(f, BIT_TARDE)) + bit(f, BIT_SOZINHA)
+    if "flags_lib" in df:
+        q = q + bit(df["flags_lib"].fillna(0).astype("int64"), 3 + i_nivel)
+    return q
+
+
+def resumo_atipicos(df: pd.DataFrame, niveis) -> dict:
+    if "flags_atip" not in df:
+        return {}
+    f = df["flags_atip"].fillna(0).astype("int64")
+    fora, tarde, soz = bit(f, BIT_FORA) > 0, bit(f, BIT_TARDE) > 0, bit(f, BIT_SOZINHA) > 0
+    out = {"limites": ATIP,
+           "fora": int(fora.sum()), "fora_votos": int(df.loc[fora, "fora_log"].sum()),
+           "fora_metade": int((fora & (df["votos_log"] < df["comparecimento"] / 2)).sum()),
+           "fora_vazio": int((fora & (df["votos_log"] == 0)).sum()),
+           "tarde": int(tarde.sum()), "tarde_17": int((tarde & (df["abertura"] >= 17)).sum()),
+           "sozinha": int(soz.sum()), "sozinha_v17": int(df.loc[soz, "votos_apos_17"].sum())}
+    for i, nome in enumerate(niveis):
+        q = n_atipicos(df, i)
+        out[nome] = {"secoes": int((q > 0).sum()), "mult": int((q >= 2).sum())}
+    # referência nacional do contexto de zona: em quantas zonas isso acontece
+    z = df[df["zona_log"] > 0].drop_duplicates(["cd_municipio", "zona"])
+    out["zonas"] = int(len(z))
+    out["zonas_sem_19"] = int((z["zona_19"] == 0).sum())
+    out["zonas_tarde"] = int((z["zona_19"] / z["zona_log"] >= ATIP["zona_alta"]).sum())
     return out
