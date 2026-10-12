@@ -51,7 +51,9 @@ cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
 | `baixar_ibge.py` | População Censo 2022 por idade (SIDRA, tabela 9514, confirmada) → `dados/populacao_2022.parquet`. |
 | `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (pasta `perfil_eleitor_tte` do CDN). |
 | `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
-| `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (26 conferências). |
+| `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (31 conferências). ATENÇÃO: grava em `dados/` e `web/dados/` (sobrescreve `populacao_2022.parquet`); rode numa cópia do projeto se houver dados reais. |
+| `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários). |
+| `docs/analise-casos-atipicos.md` | Achados e fórmulas das análises de out/2026 (tempo de voto, liberação pelo mesário, casos atípicos de horário). |
 
 `dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
 O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/2026 (está no histórico do git).
@@ -140,7 +142,19 @@ O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/202
 - Publicação (decisão do usuário, 12/out/2026): o endereço oficial é **https://rntjr.github.io/esteleicao/** (GitHub Pages),
   sem domínio próprio e sem CNAME. O domínio `esteleicao.com`, o servidor Windows e o Caddy (seção 6) são de OUTRA pessoa,
   que disponibilizou o código original: não configurar domínio nem mexer no servidor; a seção 6 fica só como histórico.
-- PRÓXIMO: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).
+- 12/out (tarde): **Parte 1 publicada**: tags de liberação pelo mesário (`extras.liberacoes`, `flags_lib`): "Mesário após 17h"
+  (20/10/5), "Salto às 17h" e "Leitor com defeito provável", com filtro/coluna em Seções em atenção, bloco no Panorama, cartão
+  hora a hora no detalhe e textos em Como ler e no quadro "Como comparamos" (topo de todas as telas). Tags NÃO contam como critério.
+  Teste sintético: 31/31 (casos novos sorteados com `rng_lib` à parte, para não mudar os antigos).
+- **Parte 2 pausada** a pedido do usuário: `eleitores_urna.py` (uma linha por eleitor) gerado na nuvem para 19 UFs; faltam
+  SP, RJ, MG, MT, MS, DF, SE, BA. No Mac, rodar SEM `--apagar-brutos` (guardar `dados/logs_brutos_*` para não baixar de novo).
+  `download_tse.baixar_so_logs` agora usa janela de pedidos (antes guardava tudo na memória e SP estourava ~11 GB).
+- Análises e propostas pendentes (com fórmulas e números nacionais): **docs/analise-casos-atipicos.md**. Próximo passo combinado:
+  "Casos extremamente atípicos" (tags Votos fora do log, Urna começou tarde, Terminou sozinha + lista + contexto de zona) e,
+  depois, os itens da Parte 2 (liberação seletiva × leitor com defeito, sem digital com foto, sem digital > cadastro,
+  tempo de cabine no lugar de "votos rápidos"). Sempre mostrar os números nacionais ao usuário ANTES de publicar.
+- PRÓXIMO também: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).
+- Publicar no Mac: `publicar_pages.ps1` precisa do PowerShell (`brew install powershell`, depois `pwsh deploy/publicar_pages.ps1`).
 
 ## 8. Rotinas
 
