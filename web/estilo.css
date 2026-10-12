@@ -286,10 +286,24 @@ code { font-size: .9em; background: var(--superficie-2); padding: 1px 5px; borde
 .dica { position: fixed; z-index: 40; pointer-events: none; background: var(--tinta); color: var(--papel); padding: 8px 10px; border-radius: var(--raio); font-size: .85rem; max-width: 280px; line-height: 1.35; }
 .dica b { font-weight: 700; }
 
+/* quadro "Como comparamos", no topo de todas as telas */
+.metodo { background: var(--superficie); border-bottom: 1px solid var(--linha); }
+.metodo details { max-width: var(--largura); margin: 0 auto; padding: 10px 24px; }
+.metodo summary { cursor: pointer; color: var(--tinta-2); font-size: .95rem; line-height: 1.45; }
+.metodo summary strong { color: var(--tinta); }
+.metodo summary .abrir { color: var(--tinta); text-decoration: underline; white-space: nowrap; }
+.metodo details[open] summary .abrir { display: none; }
+.metodo-corpo { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 16px 32px; padding: 14px 0 8px; font-size: .92rem; }
+.metodo-corpo h3 { font-size: .98rem; margin: 0 0 6px; }
+.metodo-corpo p, .metodo-corpo li { color: var(--tinta-2); margin: 0 0 6px; line-height: 1.45; }
+.metodo-corpo ul { margin: 0; padding-left: 18px; }
+.metodo-corpo .exemplo { border-left: 3px solid var(--linha); padding-left: 10px; }
+.metodo-rodape { font-size: .9rem; color: var(--tinta-2); padding-bottom: 6px; }
+
 .rodape { color: var(--tinta-2); font-size: .85rem; padding-top: 20px; padding-bottom: 40px; border-top: 1px solid var(--linha); display: flex; flex-direction: column; gap: 6px; }
 
 @media (max-width: 640px) {
-  .topo-linha, .abas, .escopo-dentro, main, .rodape { padding-left: 16px; padding-right: 16px; }
+  .topo-linha, .abas, .escopo-dentro, main, .rodape, .metodo details { padding-left: 16px; padding-right: 16px; }
   .rigor { margin-left: 0; width: 100%; }
   .rigor select { flex: 1; }
   .numeros { grid-template-columns: 1fr 1fr; }
@@ -300,6 +314,7 @@ code { font-size: .9em; background: var(--superficie-2); padding: 1px 5px; borde
 }
 
 @media print {
+  .metodo { display: none; }
   body.imprimindo-fichas > *:not(#fichas-impressao) { display: none !important; }
   body.imprimindo-fichas #fichas-impressao { display: block; }
   .ficha { break-after: page; font-size: 11pt; color: #000; }

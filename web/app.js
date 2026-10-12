@@ -1189,11 +1189,11 @@ TELAS["como-ler"] = async (el) => {
   const nv = D.brasil.meta.niveis;
   el.innerHTML = `<div class="texto">
     <section class="manchete"><h1>Como ler este site</h1><p>O que cada número significa, de onde vem e o que ele não prova.</p></section>
-    <div class="aviso"><strong>Um destaque não é prova de fraude.</strong> São cerca de 470 mil seções; mesmo com regras rigorosas, dezenas a centenas aparecem só por acaso, e a maioria tem explicação comum. O objetivo é saber onde vale a pena olhar de perto e onde colocar fiscais.</div>
+    <div class="aviso"><strong>Um destaque não é prova de fraude.</strong> São ${n(D.brasil.total.secoes)} seções; mesmo com regras rigorosas, dezenas a centenas aparecem só por acaso, e a maioria tem explicação comum. O objetivo é saber onde vale a pena olhar de perto e onde colocar fiscais.</div>
     <h2>De onde vêm os dados</h2>
-    <ul><li><strong>Resultado por seção</strong> (TSE): eleitores aptos, quantos compareceram e quantos faltaram.</li>
-      <li><strong>Log de cada urna</strong> (TSE): o registro de cada eleitor com o horário do voto e como ele foi liberado (digital reconhecida, sem digital cadastrada ou liberado pelo mesário).</li>
-      <li><strong>Eleitorado por local de votação</strong> (TSE): nome, endereço e coordenadas da escola de cada seção.</li></ul>
+    <ul>${fontesUsadas().map(([nome, org, para]) => `<li><strong>${nome}</strong> (${org}): ${para}.</li>`).join("")}</ul>
+    <h3>Como sabemos quem tem digital cadastrada</h3>
+    <p>A urna leva o cadastro do TSE e só pede a digital de quem tem digital cadastrada; o log registra cada pedido (“Solicita digital, tentativa 1 de 4”). Quem não tem digital cadastrada é liberado pelo ano de nascimento, sem nenhum pedido de digital. Quem tem digital e não é reconhecido em 4 tentativas é liberado pelo mesário, depois de conferir um dado pessoal: é isso que o site chama de <strong>liberação pelo mesário</strong>. Conferimos com o cadastro de biometria do TSE (perfil do eleitorado por seção): onde o cadastro diz que todos têm digital, quase nenhum voto aparece no log como “sem digital cadastrada”.</p>
     <p>Os horários estão todos no horário de Brasília (a votação vai das 8h às 17h em todo o país). Os números são calculados uma vez, quando os dados são atualizados, e não mudam conforme quem visita.</p>
     <h2>Os três critérios</h2>
     <h3>Abstenção muito baixa</h3>
@@ -1358,6 +1358,47 @@ function fecharGaveta() {
   document.body.style.overflow = "";
 }
 
+// =============================================================== quadro "Como comparamos" (topo de todas as telas)
+// Fontes usadas nesta geração do site (só as que existem nos dados).
+function fontesUsadas() {
+  const m = D.brasil.meta, fx = m.fontes_extras || [];
+  const temPop = D.municipios.some((x) => x.razao_pop != null);
+  return [
+    ["Resultado por seção", "TSE", `eleitores aptos, quantos compareceram e quantos faltaram nas ${n(D.brasil.total.secoes)} seções`],
+    m.ufs_com_log.length && ["Log de cada urna", "TSE", `horário de cada voto e como o eleitor foi liberado (${m.ufs_com_log.length} de ${objetos(D.brasil.ufs).length} estados)`],
+    m.tem_locais && ["Eleitorado por local de votação", "TSE", "escola, endereço e coordenadas de cada seção"],
+    fx.includes("materialidade") && ["Votação por seção", "TSE", "votos de cada candidato em cada seção"],
+    fx.includes("perfil") && ["Perfil do eleitorado por seção", "TSE", "idade dos eleitores e quantos têm digital cadastrada"],
+    fx.includes("anterior") && ["Resultado por seção de " + (m.ano - 4), "TSE", "para ver se a seção já destoava na eleição anterior"],
+    temPop && ["População por idade", "IBGE, Censo 2022", "para comparar o número de eleitores com a população de cada município"],
+    fx.includes("contexto") && ["Transferência temporária do eleitorado", "TSE", "voto em trânsito, presos provisórios e quem trabalha na eleição"],
+  ].filter(Boolean);
+}
+function desenharMetodo() {
+  const el = $("#metodo");
+  if (!el) return;
+  const m = D.brasil.meta, nv = m.niveis.padrao;
+  el.innerHTML = `<details><summary><strong>Como comparamos:</strong> cada seção é comparada com o que seria normal no próprio município, usando só dados oficiais do TSE e do IBGE. Um destaque não é prova de fraude. <span class="abrir">Ver como funciona</span></summary>
+    <div class="metodo-corpo">
+      <div><h3>O que é comparado</h3>
+        <p>Para cada seção calculamos o que seria esperado olhando as <strong>outras seções do mesmo município</strong> (ou do estado, quando o município tem menos de 5 seções). Seção pequena varia mais por acaso, e a conta leva isso em consideração.</p>
+        <p class="exemplo">Exemplo: “faltaram 22 de 245 eleitores (9%); pelo padrão do município, o esperado seria faltarem cerca de 51 (21%)”.</p></div>
+      <div><h3>Quando uma seção chama atenção</h3>
+        <ul><li><strong>Abstenção muito baixa:</strong> faltou muito menos gente que o esperado.</li>
+          <li><strong>Muitos votos depois das 17h:</strong> pelo menos ${p(nv.p17, 0)} dos votos e ${n(m.min_votos_17)} pessoas, terminando bem depois das outras seções da mesma escola (escola inteira atrasada costuma ser fila).</li>
+          <li><strong>Muitas liberações pelo mesário:</strong> eleitores com digital cadastrada liberados sem a digital, muito acima do resto do município.</li></ul>
+        <p>O seletor <strong>Rigor</strong>, no alto, deixa as regras mais ou menos exigentes.</p></div>
+      <div><h3>Como sabemos quem tem digital cadastrada</h3>
+        <p>A urna leva o cadastro do TSE e <strong>só pede a digital de quem tem digital cadastrada</strong>. O log registra cada pedido (“Solicita digital, tentativa 1 de 4”).</p>
+        <p>Quem não tem digital cadastrada é liberado pelo ano de nascimento, sem nenhum pedido de digital. <strong>Liberado pelo mesário</strong> é quem tem digital cadastrada: a urna tentou 4 vezes, não reconheceu, e o mesário liberou depois de conferir um dado pessoal.</p></div>
+      <div><h3>Dados usados</h3>
+        <ul>${fontesUsadas().map(([nome, org, para]) => `<li><strong>${nome}</strong> (${org}): ${para}.</li>`).join("")}</ul>
+        <p>Horários em Brasília. Dados gerados em ${new Date(m.gerado_em).toLocaleDateString("pt-BR", { dateStyle: "long" })}.</p></div>
+    </div>
+    <p class="metodo-rodape">A maioria dos destaques tem explicação comum (fila, idosos, leitor de digital com defeito, seção nova). Explicação completa em <a href="#/como-ler">Como ler</a>.</p>
+  </details>`;
+}
+
 // =============================================================== inicialização
 let geracao = 0;  // cada troca de tela ganha um número; um desenho antigo ainda carregando é descartado
 async function renderizar() {
@@ -1388,6 +1429,7 @@ async function iniciar() {
   }
   const m = D.brasil.meta;
   $("#eleicao").textContent = `Eleições ${m.ano}, ${m.turno}º turno`;
+  desenharMetodo();
   $("#gerado").textContent = `Dados gerados em ${new Date(m.gerado_em).toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" })}. ${m.ufs_com_log.length} de ${objetos(D.brasil.ufs).length} estados com logs de urna processados.`;
   $("#nivel").addEventListener("change", (e) => { localStorageSet("nivel", e.target.value); ir({ nivel: e.target.value }); });
   $$("[data-fechar]").forEach((x) => x.addEventListener("click", fecharGaveta));
