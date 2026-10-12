@@ -705,6 +705,7 @@ const semDados = (txt) => `<div class="vazio">${txt}</div>`;
 const filtraRecorte = (ls) => ls.filter(dentro);
 
 TELAS.mais = async (el) => {
+  const minha = geracao;
   el.innerHTML = `<div class="carregando">Carregando as análises…</div>`;
   const X = await D.extras();
   const P = pref();
@@ -718,8 +719,9 @@ TELAS.mais = async (el) => {
   const partes = { materialidade: maisMaterialidade, concentrado: maisConcentrado, perfil: maisPerfil, cadastro: maisCadastro,
     repeticao: maisRepeticao, contexto: maisContexto, gastos: maisGastos, operacional: maisOperacional, sinais: maisSinais };
   for (const [id] of SECOES_MAIS) {
+    if (minha !== geracao) return;  // a pessoa já mudou de tela
     try { await partes[id]($(`#mais-${id}-corpo`), $(`#mais-${id}-nota`), X, P, secoes, L); }
-    catch (e) { console.error(e); $(`#mais-${id}-corpo`).innerHTML = semDados(`Não foi possível montar esta parte (${esc(e.message)}).`); }
+    catch (e) { if (minha !== geracao) return; console.error(e); $(`#mais-${id}-corpo`).innerHTML = semDados(`Não foi possível montar esta parte (${esc(e.message)}).`); }
   }
 };
 
@@ -1357,7 +1359,9 @@ function fecharGaveta() {
 }
 
 // =============================================================== inicialização
+let geracao = 0;  // cada troca de tela ganha um número; um desenho antigo ainda carregando é descartado
 async function renderizar() {
+  const minha = ++geracao;
   lerHash();
   $("#nivel").value = E.nivel;
   $$(".abas a").forEach((a) => a.setAttribute("aria-current", a.dataset.tela === E.tela ? "page" : "false"));
@@ -1369,6 +1373,7 @@ async function renderizar() {
     const tela = TELAS[E.tela] || TELAS.panorama;
     await tela(el);
   } catch (e) {
+    if (minha !== geracao) return;  // a pessoa já mudou de tela
     console.error(e);
     el.innerHTML = `<div class="vazio">Não foi possível carregar esta parte dos dados (${esc(e.message)}). Recarregue a página; se continuar, os arquivos do site podem estar sendo atualizados.</div>`;
   }
