@@ -24,7 +24,8 @@ import time
 import zipfile
 import zlib
 from collections import OrderedDict
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from itertools import islice
 from pathlib import Path
 
 import requests
@@ -207,21 +208,27 @@ def baixar_so_logs(url: str, destino: Path, extensoes: tuple[str, ...], conexoes
     ex = ThreadPoolExecutor(max_workers=conexoes)
     try:
         with zipfile.ZipFile(destino, "a", zipfile.ZIP_STORED) as saida:
-            futuros = [ex.submit(tarefa, i) for i in faltam]
-            for f in as_completed(futuros):
-                try:
-                    info, conteudo = f.result()
-                except Exception as e:
-                    falhas.append(str(e))
-                    continue
-                saida.writestr(info.filename, conteudo)
-                feitos += 1
-                bytes_ok += info.compress_size
-                if feitos % 50 == 0 or feitos == len(faltam):
-                    dt = max(time.time() - t0, 1e-6)
-                    resto = (len(faltam) - feitos) / (feitos / dt)
-                    print(f"\r  {feitos:,}/{len(faltam):,} logs  ({bytes_ok / dt / 1e6:,.1f} MB/s, "
-                          f"faltam ~{resto / 60:,.0f} min)   ", end="", flush=True)
+            # janela de pedidos: cada log sai da memória assim que é gravado (pedir todos de uma vez
+            # guardava os ~11 GB de SP na memória até o fim)
+            fila = iter(faltam)
+            pendentes = {ex.submit(tarefa, i) for i in islice(fila, conexoes * 8)}
+            while pendentes:
+                prontos, pendentes = wait(pendentes, return_when=FIRST_COMPLETED)
+                for f in prontos:
+                    try:
+                        info, conteudo = f.result()
+                    except Exception as e:
+                        falhas.append(str(e))
+                    else:
+                        saida.writestr(info.filename, conteudo)
+                        feitos += 1
+                        bytes_ok += info.compress_size
+                        if feitos % 50 == 0 or feitos == len(faltam):
+                            dt = max(time.time() - t0, 1e-6)
+                            resto = (len(faltam) - feitos) / (feitos / dt)
+                            print(f"\r  {feitos:,}/{len(faltam):,} logs  ({bytes_ok / dt / 1e6:,.1f} MB/s, "
+                                  f"faltam ~{resto / 60:,.0f} min)   ", end="", flush=True)
+                    pendentes |= {ex.submit(tarefa, i) for i in islice(fila, 1)}
     except KeyboardInterrupt:
         ex.shutdown(wait=False, cancel_futures=True)
         print("\n  interrompido — o que já foi baixado está salvo; rode de novo para continuar")

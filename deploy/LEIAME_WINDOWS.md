@@ -1,101 +1,75 @@
-# Publicar o painel no servidor Windows (Caddy + NSSM)
+# Publicar o site no servidor Windows (Caddy)
 
 ```
 navegador ──https──> Caddy (portas 80/443, já roda no NSSM)
-                        │  deploy\Caddyfile.est: esteleicao.com -> 127.0.0.1:8503
+                        │  deploy\Caddyfile.est: esteleicao.com -> pasta C:\git\esteleicao\web
                         ▼
-                     painel Streamlit (serviço "esteleicao" no NSSM, só interno)
+                     arquivos estáticos (HTML, JS e dados JSON pré-calculados)
 ```
 
-O Caddy só encaminha as requisições; ele não executa Python. Por isso o painel
-roda como um serviço próprio no NSSM, ouvindo **só internamente** em
-`127.0.0.1:8503` (nenhuma porta nova aberta para a internet).
+O site é **estático**: o Caddy só entrega arquivos prontos. Não há Python nem
+serviço do painel rodando no servidor, então:
 
-O servidor **não precisa baixar nada do TSE**: ele usa os dados já processados
-(`.parquet`) que você gerou no Mac.
+- a página abre em menos de 1 segundo, mesmo com muitos visitantes ao mesmo tempo;
+- o servidor gasta só a memória do próprio Caddy;
+- não existe mais o "Connecting..." do WebSocket do Streamlit.
 
-## 1. No Mac: gerar o pacote
+Os dados são calculados no Mac por `gerar_site.py` e enviados prontos.
+
+## 1. No Mac: gerar o site e o pacote
 
 ```bash
 cd ~/Git/esteleicao
 source .venv/bin/activate
+python gerar_site.py
 python deploy/empacotar.py
 ```
 
-Isso cria `pacote_servidor.zip` (código + `dados/*.parquet`, ~60 MB).
+Isso cria `pacote_servidor.zip` com a pasta `web` (site + dados).
 
-## 2. No servidor: copiar o pacote
+## 2. No servidor: publicar
 
-Copie `pacote_servidor.zip` para `C:\git\` e, no PowerShell:
+Copie `pacote_servidor.zip` para `C:\git\` e, no PowerShell **como Administrador**:
 
 ```powershell
+cd C:\git
 Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force
-```
-
-Isso atualiza `C:\git\esteleicao\` (código e pasta `dados`).
-
-## 3. No servidor: instalar o serviço do painel
-
-PowerShell **como Administrador**:
-
-```powershell
-cd C:\git\esteleicao
-Get-ChildItem -Recurse | Unblock-File
+Get-ChildItem -Recurse C:\git\esteleicao\deploy | Unblock-File
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\deploy\instalar_servico_windows.ps1
+.\esteleicao\deploy\publicar_site.ps1
 ```
 
-O script cria o `.venv` com as bibliotecas (por isso não use o `python` direto:
-ele não tem o pandas), registra o serviço `esteleicao` no NSSM (início
-automático, reinício em caso de falha, log em `logs\servico.log`) e testa se o
-painel respondeu em `http://localhost:8503`.
+O script:
 
-## 4. No servidor: ativar no Caddy
+1. extrai o pacote de novo, apagando antes os dados antigos (para não sobrar
+   arquivo de uma geração anterior);
+2. na primeira vez, **para e remove o serviço antigo `esteleicao`** do NSSM (o
+   painel Streamlit), que não é mais necessário;
+3. valida o Caddyfile principal e recarrega o Caddy sem derrubar os outros sites;
+4. testa `https://esteleicao.com`.
 
-O Caddyfile principal precisa ter a linha (você já incluiu):
+O Caddyfile principal (`C:\Git\veracibot\deploy\windows\Caddyfile`) continua
+com a mesma linha de antes:
 
 ```
 import C:/git/esteleicao/deploy/Caddyfile.est
 ```
 
-Reinicie o serviço do Caddy no NSSM para ele ler a configuração:
+## Atualizar os dados depois (ex.: 2º turno)
 
-```powershell
-nssm restart NOME-DO-SERVICO-DO-CADDY
-```
+1. No Mac: `python baixar_dados.py --turno 2`, `python baixar_logs.py --turno 2`,
+   `python gerar_site.py --turno 2 --ano 2026` e `python deploy/empacotar.py`
+2. No servidor: copiar o zip e rodar `.\esteleicao\deploy\publicar_site.ps1`
 
-Requisitos do domínio (os mesmos do duad.live): o DNS de `esteleicao.com` e
-`www.esteleicao.com` apontando para o IP do servidor. O Caddy emite o
-certificado HTTPS sozinho; `http://` e `www.` redirecionam para
-`https://esteleicao.com`.
-
-## Atualizar depois
-
-1. No Mac: `python deploy/empacotar.py`
-2. No servidor: `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`
-3. No servidor: `nssm restart esteleicao`
-
-## Comandos úteis
-
-```powershell
-nssm status esteleicao
-nssm restart esteleicao
-Get-Content C:\git\esteleicao\logs\servico.log -Tail 50
-```
-
-## Se for rodar os scripts de download no servidor
-
-Use sempre o Python do `.venv` (criado no passo 3):
-
-```powershell
-C:\git\esteleicao\.venv\Scripts\python.exe baixar_dados.py
-C:\git\esteleicao\.venv\Scripts\python.exe baixar_logs.py
-```
+Não é preciso reiniciar nada: o navegador dos visitantes busca os dados novos
+na próxima visita (o `brasil.json` traz a data da geração e os demais arquivos
+são pedidos com essa versão).
 
 ## Problemas comuns
 
-- **Página abre mas fica em "Connecting..."**: o painel não está rodando
-  (`nssm status esteleicao`) ou o Caddy não foi reiniciado.
-- **Erro de certificado**: o DNS do domínio ainda não aponta para o servidor.
-- **Serviço para sozinho**: veja `logs\servico.log`. O painel precisa de
-  ~1 GB de RAM, mais ~150–200 MB por visitante simultâneo.
+- **Erro de certificado / `ERR_SSL_PROTOCOL_ERROR`**: rode
+  `.\esteleicao\deploy\diagnosticar_caddy.ps1`; ele confere o import, valida,
+  reinicia o Caddy e mostra o erro do certificado no log.
+- **Página abre mas diz que os dados não foram gerados**: falta a pasta
+  `C:\git\esteleicao\web\dados`. Gere no Mac (`python gerar_site.py`) e empacote de novo.
+- **Página antiga depois de atualizar**: recarregue com Ctrl+F5.

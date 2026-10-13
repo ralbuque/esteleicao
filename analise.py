@@ -161,7 +161,8 @@ def corrigir_fuso(logs: pd.DataFrame) -> pd.DataFrame:
     m = delta != 0
     if not m.any():
         return logs
-    for c in ["hora_media", "hora_mediana", "hora_p90", "primeiro_voto", "ultimo_voto", "abertura"]:
+    for c in ["hora_media", "hora_mediana", "hora_p90", "primeiro_voto", "ultimo_voto", "abertura",
+              "seq_rapida_inicio"]:
         if c in logs:
             logs.loc[m, c] = logs.loc[m, c] - delta[m]
     if "abertura_atrasada_min" in logs:

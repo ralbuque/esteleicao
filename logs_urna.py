@@ -179,6 +179,26 @@ def _maior_sequencia(mask: np.ndarray) -> int:
     return int((np.flatnonzero(d == -1) - np.flatnonzero(d == 1)).max())
 
 
+INTERVALO_RAPIDO_S = 30  # votos com menos de 30 s entre um e outro
+
+
+def _sequencia_rapida(votos_s: np.ndarray, fuso: int) -> dict:
+    """Maior sequência de votos seguidos com menos de INTERVALO_RAPIDO_S entre um e outro,
+    em qualquer horário. Uma sequência de k intervalos curtos envolve k + 1 votos."""
+    if len(votos_s) < 2:
+        return {"intervalos_rapidos": 0, "maior_seq_rapida": 0, "seq_rapida_inicio": np.nan}
+    curto = np.diff(votos_s) < INTERVALO_RAPIDO_S
+    if not curto.any():
+        return {"intervalos_rapidos": 0, "maior_seq_rapida": 0, "seq_rapida_inicio": np.nan}
+    m = np.concatenate([[0], curto.astype(np.int8), [0]])
+    d = np.diff(m)
+    ini, fim = np.flatnonzero(d == 1), np.flatnonzero(d == -1)
+    k = int(np.argmax(fim - ini))
+    return {"intervalos_rapidos": int(curto.sum()),
+            "maior_seq_rapida": int(fim[k] - ini[k] + 1),
+            "seq_rapida_inicio": float(votos_s[ini[k]] / 3600 - fuso)}
+
+
 def metricas(votos_s: np.ndarray, hab: np.ndarray, fuso: int) -> dict:
     """Métricas de horário e de habilitação de uma seção, em horário equivalente (8h–17h)."""
     n = len(votos_s)
@@ -229,6 +249,7 @@ def metricas(votos_s: np.ndarray, hab: np.ndarray, fuso: int) -> dict:
         "ociosa_antes_17_min": ociosa,
         "intervalo_med_apos_17_s": float(np.median(d_apos)) if len(d_apos) else np.nan,
         "intervalo_med_s": float(np.median(np.diff(votos_s))) if n > 1 else np.nan,
+        **_sequencia_rapida(votos_s, fuso),
     }
 
 

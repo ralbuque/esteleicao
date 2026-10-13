@@ -134,7 +134,7 @@ def main():
     print(f"\n{len(df):,} seções | {total:,} aptos | abstenção agregada "
           f"{df['abstencoes'].sum() / total:.2%}")
     print(f"Salvo em {saida}")
-    print("Agora rode:  streamlit run painel.py")
+    print("Agora rode:  python gerar_site.py --servir")
 
 
 if __name__ == "__main__":

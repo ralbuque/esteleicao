@@ -1,18 +1,40 @@
-# Bloco do painel esteleicao, importado pelo Caddyfile principal
+# Bloco do site esteleicao, importado pelo Caddyfile principal
 # (C:\Git\veracibot\deploy\windows\Caddyfile) com a linha:
 #   import C:/git/esteleicao/deploy/Caddyfile.est
 #
-# O painel (Streamlit) roda como servico "esteleicao" no NSSM, ouvindo SO
-# internamente em 127.0.0.1:8503 (instalado por deploy\instalar_servico_windows.ps1).
-# O Caddy publica em esteleicao.com nas portas padrao, com HTTPS automatico
-# (quem acessar http://esteleicao.com e redirecionado para https).
-# O reverse_proxy do Caddy ja repassa WebSocket, que o Streamlit usa.
+# O site agora é ESTÁTICO: o Caddy entrega direto os arquivos da pasta web\
+# (HTML, JS e os JSON pré-calculados por gerar_site.py). Não há mais processo
+# Python rodando para atender visitantes, então nada é recalculado por visita
+# e não existe "Connecting..." de WebSocket.
 #
-# AJUSTE a porta abaixo se instalar o servico com outra (-Porta).
+# Os JSON já vêm compactados ao lado (arquivo.json.gz): "precompressed gzip"
+# entrega essa versão sem gastar CPU.
 
 esteleicao.com {
-	encode gzip
-	reverse_proxy 127.0.0.1:8503
+	root * C:/git/esteleicao/web
+	encode zstd gzip
+	file_server {
+		precompressed gzip
+	}
+
+	# brasil.json diz qual é a versão dos dados: sempre conferir
+	@versao path /dados/brasil.json
+	header @versao Cache-Control "no-cache"
+
+	# os demais dados são pedidos com ?v=<data da geração>: podem ficar em cache
+	@dados {
+		path /dados/*
+		not path /dados/brasil.json
+	}
+	header @dados Cache-Control "public, max-age=86400"
+
+	# bibliotecas, fonte e mapa quase nunca mudam
+	@fixos path /vendor/* /fontes/* /mapa/*
+	header @fixos Cache-Control "public, max-age=604800"
+
+	# HTML, CSS e JS do site: o navegador confere se mudou a cada visita
+	@codigo path / /index.html /app.js /estilo.css
+	header @codigo Cache-Control "no-cache"
 }
 
 www.esteleicao.com {

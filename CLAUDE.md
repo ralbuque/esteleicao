@@ -13,7 +13,7 @@ Painel web (estilo BI) com dados abertos do TSE das **Eleições Gerais 2026
 atípico** que possam (eventualmente) indicar irregularidade. Navegação
 Brasil → UF → município → zona → seção.
 
-O usuário quer focar em três padrões (aba "🚩 Sinalizadas"):
+O usuário quer focar em três padrões (aba "Seções em atenção"):
 
 1. **Abstenção BAIXA** (abstenção alta não interessa).
 2. **Voto após 17h significativo.**
@@ -21,8 +21,8 @@ O usuário quer focar em três padrões (aba "🚩 Sinalizadas"):
 
 Postura combinada com o usuário: sinalização estatística **não é prova de
 fraude**; a maioria dos casos tem explicação comum (fila, perfil do eleitorado,
-cadastro biométrico, leitor com defeito). O painel público tem um aviso no topo
-e uma seção "Como ler este painel". Manter esse tom.
+cadastro biométrico, leitor com defeito). O site tem aviso no rodapé, na aba
+"Como ler" e em cada tela. Manter esse tom.
 
 ## 2. Arquivos
 
@@ -30,18 +30,35 @@ e uma seção "Como ler este painel". Manter esse tom.
 |---|---|
 | `baixar_dados.py` | Baixa "Detalhe da apuração por seção eleitoral" (CDN do TSE) → `dados/secoes_<ano>_t<turno>.parquet` (aptos, comparecimento, abstenção por seção). |
 | `baixar_logs.py` | Baixa os logs das urnas por UF e gera `dados/logs_<ano>_t<turno>_<UF>.parquet` (métricas por seção). |
+| `baixar_locais.py` | Baixa "Eleitorado por local de votação" → `dados/locais_<ano>.parquet` (nome da escola, endereço, bairro, CEP, lat/lon por seção). |
 | `download_tse.py` | Downloads resilientes: modo padrão baixa **só os logs** de dentro do zip remoto via HTTP Range (lê o diretório central do zip, 8 conexões, retomável, grava em `dados/logs_brutos_<ano>_<turno>t_<UF>.zip`); plano B `--completo` baixa o zip inteiro com retomada. |
 | `logs_urna.py` | Parser do log da urna (`logd.dat`) e cálculo de métricas por seção. |
 | `analise.py` | Estatística: z da abstenção, z de proporções (sem digital, manual, após 17h), z do horário, sinais, correção de fuso. |
-| `painel.py` | Painel Streamlit. |
-| `gerar_dados_teste.py` | Gera dados sintéticos com anomalias plantadas (ano 1999) para testes. |
-| `deploy/instalar_servico_windows.ps1` | Cria `.venv`, instala requirements, registra o serviço `esteleicao` no NSSM. |
-| `deploy/Caddyfile.est` | Bloco do Caddy para `esteleicao.com` → `127.0.0.1:8503`. |
-| `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy (acha serviço, valida config, reinicia, lê log, testa). |
-| `deploy/empacotar.py` | Gera `pacote_servidor.zip` (código + `dados/*.parquet`) no Mac. |
-| `deploy/LEIAME_WINDOWS.md` | Passo a passo de publicação no Windows. |
+| `gerar_site.py` | Roda toda a análise UMA vez e grava `web/dados/*.json` (+ `.gz`): `brasil.json`, `municipios.json`, `apos17.json`, `plano.json`, `uf/<UF>.json`, `mun/<cd>.json`, `zona/<cd>-<zona>.json`. `--servir` abre em localhost:8000. |
+| `web/` | Site estático (HTML + `app.js` + `estilo.css`, sem build). `vendor/` (d3-geo, d3-array, topojson-client), `fontes/` (Archivo), `mapa/brasil.topo.json` (5.564 municípios simplificados, id = código IBGE). |
+| `referencia/municipios.csv` | Código TSE ↔ código IBGE, nome, lat/lon do centro de cada município (fontes: betafcc/Municipios-Brasileiros-TSE e kelvins/municipios-brasileiros). |
+| `gerar_dados_teste.py` | Dados sintéticos com anomalias plantadas (ano 1999), municípios reais e arquivo de locais de votação. |
+| `deploy/Caddyfile.est` | Bloco do Caddy: `esteleicao.com` → `file_server` da pasta `C:/git/esteleicao/web` (precompressed gzip, cache). |
+| `deploy/publicar_site.ps1` | Extrai o pacote, remove o serviço NSSM antigo do Streamlit, valida e recarrega o Caddy. |
+| `deploy/diagnosticar_caddy.ps1` | Diagnóstico do HTTPS no Caddy. |
+| `deploy/empacotar.py` | Gera `pacote_servidor.zip` com `web/` (site + dados) no Mac. |
+| `deploy/publicar_pages.ps1` | Roda `gerar_site.py` e publica `web/` (sem .gz, com .nojekyll) na branch órfã `gh-pages` (GitHub Pages). |
+| `docs/ideias-de-relatorios.md` | Próximos relatórios e dados sugeridos para fiscalização. |
+| `extras.py` | Análises da aba "Mais análises" (a–i de docs/ideias-de-relatorios.md). Só ACRESCENTA colunas; não muda os 3 critérios. Cada fonte é opcional. |
+| `leitura_tse.py` | Leitura de CSV do TSE com detecção flexível de colunas (usado pelos baixar_* novos). |
+| `baixar_votacao.py` | Votação por seção (por candidato) → `dados/votacao_<ano>_t<turno>_<UF>.parquet`. Materialidade e voto concentrado. Confere votos ÷ comparecimento por cargo. |
+| `baixar_perfil.py` | Perfil do eleitorado por seção → `dados/perfil_<ano>_<UF>.parquet` (16–17, 60–69, 70+, biometria). |
+| `baixar_ibge.py` | População Censo 2022 por idade (SIDRA, tabela 9514, confirmada) → `dados/populacao_2022.parquet`. |
+| `baixar_transferencia.py` | Transferência temporária por seção → `dados/transferencia_<ano>.parquet` (pasta `perfil_eleitor_tte` do CDN). |
+| `baixar_gastos.py` | Prestação de contas (despesas contratadas) → `dados/gastos_<ano>.parquet` por município do fornecedor e categoria. |
+| `testar_sem_internet.py` | Teste completo com dados sintéticos + conferência automática dos casos plantados (31 conferências). ATENÇÃO: grava em `dados/` e `web/dados/` (sobrescreve `populacao_2022.parquet`); rode numa cópia do projeto se houver dados reais. |
+| `eleitores_urna.py` | Uma linha por eleitor a partir dos logs → `dados/eleitores_<ano>_t<turno>_<UF>.parquet` (tipo de liberação, cargos, tentativas de digital, foto, mesário numerado, horários, `t_manual`/`t_mesario`, `mesario_cod` = código EMBARALHADO do mesário, `urna`). Grava também `dados/urnas_<ano>_t<turno>_<UF>.parquet` (seção × log × urna com votos: votos, 1º e último voto). `--conferir` compara com `logs_*.parquet`. A chave do embaralhamento fica em `dados/.sal_mesario` (fora do git; nunca publicar chave nem código). |
+| `medidas_eleitores.py` | Resume `eleitores_*.parquet` por SEÇÃO → `dados/medidas_eleitores_<ano>_t<turno>.parquet` (sem digital com foto, liberações com o leitor funcionando em volta, tempo de cabine dos eleitores de 6 cargos, dado que não conferiu, liberação em até 10 s). `gerar_site.py` lê se existir (`extras.parte2`). |
+| `simulador.py` | Dados da aba "Simule o 2º turno" → `web/dados/turno2.json`: disputas sem maioria no 1º turno (presidente e governadores) com votos por candidato, brancos, nulos, abstenção; `HISTORICO` (presidente 2010–2022, 1º e 2º turno, conferido no TSE) e `ajuste_referencia` (saldo de 2022 na proporção do eleitorado). `python simulador.py` regrava só esse arquivo; `--baixar` busca `consulta_cand_<ano>.zip` (nome de urna e partido). `gerar_site.py` chama `simulador.gerar`. |
+| `docs/analise-casos-atipicos.md` | Achados e fórmulas das análises de out/2026 (tempo de voto, liberação pelo mesário, casos atípicos de horário). |
 
-`dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
+`dados/`, `web/dados/`, `logs/`, `.venv/`, `pacote_servidor.zip` estão no `.gitignore`.
+O painel Streamlit (`painel.py`) foi substituído pelo site estático em out/2026 (está no histórico do git).
 
 ## 3. Fontes de dados (TSE)
 
@@ -66,68 +83,132 @@ e uma seção "Como ler este painel". Manter esse tom.
 
 ## 4. Métodos estatísticos (decisões)
 
-- **z ajustado da abstenção** (padrão): `(taxa − esperada) / sqrt(p(1−p)/aptos + τ²)`; esperada = taxa do próprio município sem a seção (leave-one-out), UF se o município tem < 5 seções; τ² = variação natural entre seções, estimada por UF de forma robusta (mediana/MAD). Também existem z simples e z binomial (opções no painel).
+- **z ajustado da abstenção** (padrão): `(taxa − esperada) / sqrt(p(1−p)/aptos + τ²)`; esperada = taxa do próprio município sem a seção (leave-one-out), UF se o município tem < 5 seções; τ² = variação natural entre seções, estimada por UF de forma robusta (mediana/MAD). Também existem z simples e z binomial (em `analise.py`; o site usa o ajustado).
 - Mesmo método (`analise.z_proporcao`) para: % sem digital, % liberação manual (denominador = eleitores com digital cadastrada), % após 17h.
 - **Horário**: tudo em horário de Brasília (8h–17h). A urna marca hora local. Fuso por seção = fuso oficial da UF (`FUSO_OFICIAL` em `logs_urna.py`: AC −2; AM, MT, MS, RO, RR −1; resto 0), trocado só se a abertura destoar > 45 min (casos reais: oeste do AM −2, Fernando de Noronha +1, leste do MT usa horário de Brasília = 0). Harmonizado pelo fuso mais comum do município. `analise.corrigir_fuso` reaplica a regra em parquets antigos usando os histogramas por hora (`h00..h23`, `s00..` sem digital, `m00..` manual), com resultado idêntico ao reprocessamento.
 - Achado: Guaporema, Nova Olímpia e Tapira (PR, 40 seções) têm a curva de votos ~40 min adiantada → relógio das urnas adiantado; aparecem com "abertura atrasada" e % após 17h inflado. Não é indício de fraude.
-- **Sinalizadas** (aba 🚩): critérios independentes, a seção mostra quantos cumpre (1, 2 ou 3, escolha na barra lateral):
+- **Seções em atenção**: critérios independentes, a seção mostra quantos cumpre (rigor padrão abaixo; rigoroso/amplo em `gerar_site.NIVEIS`):
   - abstenção baixa: z ≤ −limite (padrão 3) e ≥ 50 aptos;
   - voto após 17h: ≥ 15% dos votos após 17h e ≥ 10 votos; por padrão só conta se a hora média da seção for 30+ min mais tarde que as outras seções da mesma escola (escola inteira tarde = fila);
   - liberação manual: z_manual ≥ limite e ≥ 5 casos.
-- **Cruzamento** (aba 🔀): score = min dos z dos critérios escolhidos na barra lateral.
+- **Plano de fiscalização** (por local de votação, rigor padrão): ALTA = alguma seção com 2+ critérios, 3+ seções em atenção no local ou desvio muito forte (abst z ≤ −5, manual z ≥ 5, ou ≥30% e ≥30 votos após 17h); MÉDIA = 2 seções ou sinal no log (urna ociosa, maioria sem biometria após 17h, sequência manual, ritmo rápido); BAIXA = 1 seção. Fiscais sugeridos = 1 por local + 1 a cada 4 seções.
 - "sinais" por seção (texto): ≥10% após 17h; urna ociosa ≥20 min antes das 17h mas votos depois; maioria sem biometria após 17h; ritmo muito rápido após 17h; 1h+ mais tarde que a escola; sem digital/manual muito acima do município; 8+ liberações manuais seguidas; log ≠ comparecimento; urna substituída; abertura atrasada.
 
-## 5. Painel: desempenho (importante para produção)
+## 5. Site: desempenho e decisões
 
-A base nacional tem ~500 mil seções × ~150 colunas (~300 MB em memória). Já otimizado:
+- Antes (Streamlit): cada visita rodava o script inteiro sobre ~500 mil seções; medido com base sintética de 470 mil seções: 18,5 s na primeira visita, ~10 s nas seguintes, ~730 MB de RAM no servidor após 3 visitas.
+- Agora: site estático. Mesma base: 0,2 s para abrir o Panorama (123 KB transferidos, 90 KB são a fonte), 0,7 s o mapa; em 4G simulado (9 Mbps, 150 ms) 0,7 s e 2 s. Servidor: só o Caddy (~50 MB).
+- Arquivos divididos para cada tela baixar só o necessário: municípios num arquivo; seções sinalizadas (no rigor amplo; o site filtra os outros níveis) por UF; todas as seções por zona (nenhum arquivo fica grande, nem a capital paulista).
+- Critérios em bits por seção (`flags`): bits 0-2 rigoroso, 3-5 padrão, 6-8 amplo (abst=1, 17h=2, manual=4). Níveis em `gerar_site.NIVEIS`.
+- Sempre mostrar QUANTIDADE ao lado da porcentagem (pedido do usuário: a % sozinha assusta).
+- Visual: cores da urna (laranja do CORRIGE = atenção; verde do CONFIRMA), fonte Archivo; textos em português simples, sem jargão (z aparece só como "intensidade" no detalhe).
 
-- `st.cache_resource` (uma cópia compartilhada, não `cache_data`), com `assinatura` (nomes+datas dos arquivos) e `incluir_zz` no cache; base consolidada com `.copy()` (evita fragmentação) e tipos compactos (float32, inteiros menores, category).
-- Nada de filtros que copiem a base inteira por visitante (`com_log` devolve a própria base se ≥ 90% das seções têm log; `filtrar` com subconjunto de colunas).
-- Histogramas calculados no servidor (`histograma()`), dispersões com amostra de 15 mil pontos de fundo + todos os destacados.
-- Medido com dados reais: ~0,9 GB com 1 visitante, ~1,4 GB com 5 simultâneos, ~2,9 GB com 10. Antes das otimizações, o servidor caía com 5.
-- Correlação de Spearman feita com `rank().corr()` (scipy não está no requirements).
-
-## 6. Publicação (servidor Windows)
+## 6. Publicação antiga (servidor Windows de outra pessoa; só histórico, ver seção 7)
 
 - Servidor Windows, IP público **72.167.48.234**, repositório em **`C:\git\esteleicao`**.
-- Já existem outros sites: o **Caddy** roda como serviço do **NSSM** com o Caddyfile principal em `C:\Git\veracibot\deploy\windows\Caddyfile` (importa blocos por site, ex.: `import C:/Git/duadlive/deploy/Caddyfile.duad` para o site estático duad.live).
-- Arquitetura desejada pelo usuário: **porta padrão (80/443) pelo Caddy**, sem abrir porta nova:
-  `navegador → Caddy (esteleicao.com, HTTPS automático) → 127.0.0.1:8503 (serviço NSSM "esteleicao", Streamlit)`.
-  O Caddy não executa Python, então o painel precisa do próprio serviço NSSM (só interno).
-- Serviço do painel: `deploy\instalar_servico_windows.ps1` (padrão `-Porta 8503 -Endereco 127.0.0.1`). Comando registrado:
-  `.venv\Scripts\python.exe -m streamlit run painel.py --server.port 8503 --server.address 127.0.0.1 --server.headless true --server.fileWatcherType none --server.runOnSave false --browser.gatherUsageStats false --client.toolbarMode viewer`; log em `logs\servico.log`.
-- **Não usar o `python` global** no servidor (não tem pandas): sempre `C:\git\esteleicao\.venv\Scripts\python.exe`.
-- Dados: o servidor **não baixa nada do TSE**; usa os `.parquet` gerados no Mac (`deploy/empacotar.py` → `pacote_servidor.zip`, enviado ao servidor). A pasta `dados` não vai pelo git.
-- WebSocket: o Streamlit 1.65 só aceita WebSocket se Origin == Host (ou `server.corsAllowedOrigins`). O Caddy repassa o Host original, então funciona sem configuração extra (testado: Origin do próprio domínio → 101; outro domínio → 403). Se um dia houver proxy que reescreva o Host, use `-Dominio https://esteleicao.com` no instalador.
-- `Caddyfile.est` atual:
-  ```
-  esteleicao.com {
-  	encode gzip
-  	reverse_proxy 127.0.0.1:8503
-  }
-  www.esteleicao.com {
-  	redir https://esteleicao.com{uri} permanent
-  }
-  ```
-  Validado com `caddy validate`; testado com Caddy 2.8 + navegador na frente do Streamlit.
+- O **Caddy** roda como serviço do **NSSM** com o Caddyfile principal em `C:\Git\veracibot\deploy\windows\Caddyfile`, que importa `C:/git/esteleicao/deploy/Caddyfile.est`.
+- Arquitetura: `navegador → Caddy (esteleicao.com, HTTPS automático) → arquivos de C:\git\esteleicao\web`. Sem Python no servidor; o serviço NSSM "esteleicao" (Streamlit) é removido por `publicar_site.ps1`.
+- Dados: gerados no Mac (`gerar_site.py`), empacotados (`deploy/empacotar.py`) e extraídos no servidor (`deploy/publicar_site.ps1`).
+- Cache: `brasil.json` sem cache (traz `gerado_em`); demais dados pedidos com `?v=<gerado_em>` e cache de 1 dia; vendor/fontes/mapa 7 dias; HTML/JS/CSS `no-cache`.
 
 ## 7. Estado atual e PRÓXIMO PASSO (onde paramos)
 
-- ✅ Painel rodando no servidor em `http://localhost:8503` (confirmado pelo usuário).
-- ❌ `https://esteleicao.com` dá **`ERR_SSL_PROTOCOL_ERROR`** no navegador = o Caddy aceita a conexão TLS mas não tem certificado para o domínio.
-- Verificado de fora: DNS correto (`esteleicao.com` A → 72.167.48.234; `www` CNAME → esteleicao.com); o mesmo IP do duad.live; sem registro CAA; o SOA do DNS (serial 2026101101) indica que o registro foi criado/alterado **hoje (11/10/2026)**.
-- Hipótese principal: o Caddy tentou emitir o certificado antes de o DNS propagar, falhou e entrou em espera crescente entre tentativas. Outras possibilidades: o `import` do `Caddyfile.est` não está no Caddyfile principal (ou está dentro de outro bloco), o caminho do import está errado, ou o Caddy não foi reiniciado.
-- **A fazer no servidor:**
-  1. Rodar `.\deploy\diagnosticar_caddy.ps1` (PowerShell como Administrador). Ele acha o serviço do Caddy no NSSM, confere o import, valida a configuração, reinicia o Caddy, mostra as linhas do log sobre `esteleicao.com` e testa `https://esteleicao.com` localmente.
-  2. Ler o erro do ACME no log do Caddy (NXDOMAIN, timeout nas portas 80/443, rate limit...) e corrigir.
-  3. Confirmar que `https://esteleicao.com` abre o painel e que o WebSocket conecta (sem "Connecting..." na página).
-- Observação: o `Caddyfile.duad` original do usuário tinha `www.duad.live` redirecionando para `https://esteleicao.com` (provável engano de cópia); vale avisar o usuário.
+- 12/out/2026 (sessão na nuvem): Etapas 2 a 4 feitas com DADOS REAIS do 1º turno de 2026. Código em `reformulacao-site`
+  (PR #1 do fork). Site publicado no GitHub Pages: **https://rntjr.github.io/esteleicao/** (branch `gh-pages`, um único commit,
+  substituída a cada publicação por `deploy/publicar_pages.ps1`; sem os `.gz`, com `.nojekyll`).
+- Validação real (bate com a seção 3): 124.746.009 votos no log; 99,57% das seções com log = comparecimento; 3.722.310 votos
+  após 17h (2,98%; o site mostra 3.722.495 por causa da harmonização de fuso); sem digital 12,2%.
+- O que os arquivos reais mostraram (já ajustado no código):
+  - transferência temporária: `odsele/perfil_eleitor_tte/transf_temporaria_secao_<ano>.zip`, uma linha por origem→destino, coluna `TP_TTE`;
+    traz também linhas do 2º turno (filtra por NR_TURNO).
+  - votação por seção: arquivos por UF trazem Governador, Senador e deputados; **Presidente vem só em `votacao_secao_2026_BR.zip`**
+    (todas as UFs e exterior); `..._ZZ.zip` vem vazio. `baixar_votacao.UFS` usa BR no lugar de ZZ; o BR entra só na materialidade.
+  - gastos: em 2026 o TSE publica as despesas **sem o município do fornecedor** (100% `#NULO`). A aba mostra só um aviso
+    (decisão do usuário). Categorias: R$ 1,33 bi em transporte, combustível, locação de veículos e pessoal.
+  - perfil do eleitorado: retrato de julho; bate com os aptos em ~20–45% das seções; 2.043.134 eleitores estão em seções agregadas (sem resultado próprio).
+  - IBGE tabela 9514 confirmada (Censo 2022, 203.080.756 pessoas; 162,3 mi com 16+).
+  - `referencia/municipios.csv` tinha o código TSE trocado em 7 municípios (Laje, Lajedão, Lajedinho, Lajedo do Tabocal, Lagoa Real/BA;
+    Santiago do Sul, Santa Terezinha do Progresso/SC); corrigido. Outras diferenças de nome com o TSE são só grafia.
+- Mudanças de apresentação pedidas pelo usuário: materialidade usa a diferença que DECIDIU a disputa (Senado: última vaga;
+  1º turno de Governador/Presidente: folga sobre a metade dos válidos, o que faltou para a metade ou 2º × 3º, o que for menor);
+  cadastro explica que eleitores > população 16+ é comum em cidade pequena (93% dos municípios < 5 mil eleitores; 14% dos > 100 mil).
+- Desempenho real: `gerar_site.py` ~12 min e pico de ~6,2 GB de RAM; `web/dados` 306 MB sem .gz (11,7 mil arquivos, maior 4,4 MB).
+  Navegador: 0 erros de console em 60 telas (desktop, celular, escuro), sem rolagem lateral no celular, telas em ≤ 1,4 s.
+- Achados reais (rigor padrão; nenhum é prova): 21.898 seções em atenção, 604 com 2 critérios, 2 com os 3 (Taquarana/AL z45 s174:
+  99 de 106 liberados pelo mesário, 27 seguidos, 31% após 17h; Nhamundá/AM z43 s47). Após 17h concentrado no NE (AL 9,3%, PE 7,5%,
+  BA 7,5%; SP 0,4%). Disputas em que os votos das seções em atenção passam da diferença: Senado RN e PA (última vaga), Governo RN,
+  AC (2º turno por 1.064 votos), PR (venceu no 1º turno por 6.012), DF e ES. Votos rápidos em sequência: nenhum (máx. 5 seguidos).
+- Limites NOVOS da Etapa 2 (propostos, ajustáveis): `extras.CONC` (voto concentrado: z 5/4/3, fatia 50/40/30%, 50/40/30 votos),
+  manual tardio (z ≥ 3,5, ≥ 5 casos, ≥ 2× o esperado), sequência rápida ≥ 10 votos com < 30 s, votos antes das 8h ≥ 3,
+  comparecimento entre turnos (z robusto ≥ 4 e +10 p.p.).
+- Publicação (decisão do usuário, 12/out/2026): o endereço oficial é **https://rntjr.github.io/esteleicao/** (GitHub Pages),
+  sem domínio próprio e sem CNAME. O domínio `esteleicao.com`, o servidor Windows e o Caddy (seção 6) são de OUTRA pessoa,
+  que disponibilizou o código original: não configurar domínio nem mexer no servidor; a seção 6 fica só como histórico.
+- 12/out (tarde): **Parte 1 publicada**: tags de liberação pelo mesário (`extras.liberacoes`, `flags_lib`): "Mesário após 17h"
+  (20/10/5), "Salto às 17h" e "Leitor com defeito provável", com filtro/coluna em Seções em atenção, bloco no Panorama, cartão
+  hora a hora no detalhe e textos em Como ler e no quadro "Como comparamos" (topo de todas as telas). Tags NÃO contam como critério.
+  Teste sintético: 31/31 (casos novos sorteados com `rng_lib` à parte, para não mudar os antigos).
+- **Parte 2 pausada** a pedido do usuário: `eleitores_urna.py` (uma linha por eleitor) gerado na nuvem para 19 UFs; faltam
+  SP, RJ, MG, MT, MS, DF, SE, BA. No Mac, rodar SEM `--apagar-brutos` (guardar `dados/logs_brutos_*` para não baixar de novo).
+  `download_tse.baixar_so_logs` agora usa janela de pedidos (antes guardava tudo na memória e SP estourava ~11 GB).
+- Análises e propostas pendentes (com fórmulas e números nacionais): **docs/analise-casos-atipicos.md**. Próximo passo combinado:
+  "Casos extremamente atípicos" (tags Votos fora do log, Urna começou tarde, Terminou sozinha + lista + contexto de zona) e,
+  depois, os itens da Parte 2 (liberação seletiva × leitor com defeito, sem digital com foto, sem digital > cadastro,
+  tempo de cabine no lugar de "votos rápidos"). Sempre mostrar os números nacionais ao usuário ANTES de publicar.
+- 12/out (noite, sessão num PC WINDOWS do usuário, `C:\Users\renato.franco\Documents\esteleicao`): esta máquina agora tem TODOS os dados
+  do 1º turno em `dados/` (56 GB: secoes, locais, votacao, perfil, populacao, transferencia, gastos, `logs_*`, `eleitores_*`, `urnas_*` e os
+  brutos `logs_brutos_2026_1t_<UF>.zip` das 27 UFs + ZZ; NÃO apagar os brutos). Python 3.13 em `.venv` (`.venv\Scripts\python.exe`);
+  no Windows rode com `$env:PYTHONUTF8='1'`. `gerar_site.py` leva ~21 min. `eleitores_urna.py` confere com `logs_urna` nas 28 unidades.
+- **Etapa 3 feita e publicada: "Casos extremamente atípicos"** (`extras.atipicos`, `flags_atip`: bit 0 votos fora do log ≥ 50, bit 1 urna
+  começou tarde ≥ 15h, bit 2 terminou sozinha; limites em `extras.ATIP`). Tags, FORA da contagem dos 3 critérios e iguais nos 3 níveis.
+  Aba própria (`TELAS.atipicos`), bloco no Panorama, cartão no detalhe com os números e o contexto de zona, filtro em Seções em atenção,
+  textos em Como ler e Como comparamos. Brasil: 1.281 seções com votos fora do log (169.230 votos), 358 urna tarde, 456 terminou
+  sozinha, 3 salto às 17h; união 1.718. Achados: toda "urna tarde" também tem "votos fora do log" (mesma troca de urna), por isso a
+  dupla conta como UM padrão (`extras.n_atipicos`, `nAtip` no app.js): 21 seções com 2+ padrões diferentes. Contexto de zona: seções da
+  zona com último voto depois das 19h; "zona votou até tarde" a partir de 5% (`ATIP["zona_alta"]`; 826 de 6.106 zonas; 4.418 não têm
+  nenhuma). Decisões do limite de 5% e da dupla foram propostas do assistente, aceitas sem objeção: confirmar se o usuário reclamar.
+- **Interface (pedidos do usuário em 12/out):** listas de SEÇÕES em cartões (`cartoes`, `cartoesSecao` no app.js, montados a partir das
+  mesmas colunas das tabelas/CSV), ordenação escolhida num seletor, filtros de três estados "= tem / ≠ não tem / tanto faz"
+  (`filtroTri`) para critérios e tags, filtros recolhidos no celular ("Mostrar filtros", com contagem dos que estão em uso), todos os
+  selos (critérios e tags) no cartão, selos empilhados em colunas numéricas. Tag "Mesário após 17h" passou a se chamar "Liberados pelo
+  mesário após 17h". Continuam em tabela as comparações (estados, municípios, zonas, plano, materialidade, cadastro, gastos, outras
+  seções da escola). Marcar dois filtros agora exige os dois (E), não um OU outro.
+- **Etapa 4 (amostragens, nada foi para o site; números em docs/analise-casos-atipicos.md, seção 6):** BU e RDV conferem com o oficial
+  em 3.216 de 3.216 seções e o tipo de liberação do BU bate com a nossa leitura do log; votos fora do log = troca de urna (o BU tem
+  todos os votos); nenhuma urna com votos em duas seções; mesmo mesário em 2+ seções: 117 de 695.124; dado que não conferiu: 1,36%
+  (erro de digitação corrigido); liberação rápida: mínimo 4 s, nada impossível. Nenhum item justificou tag nova.
+- Teste sintético (`testar_sem_internet.py`, rodar numa CÓPIA do projeto; casos novos sorteados com `rng_atip`).
+- **Etapa 5 (Parte 2) implementada em 12/out** (`medidas_eleitores.py` + `extras.parte2`, `flags_p2`, limites em `extras.P2`; decisões
+  aprovadas pelo usuário): (1) liberação seletiva NÃO virou tag (88,7% das liberações do país acontecem com o leitor funcionando em
+  volta; as seções que se destacam são de idosos); entrou só uma frase no detalhe; (2)+(3) uma tag única "Sem digital, com foto"
+  (20+ eleitores sem digital com foto no cadastro e 50%+ dos sem digital): 116 seções em 36 municípios; 44 delas também têm 20+ votos
+  "sem digital" além do cadastro de julho (mesmo fenômeno; o detalhe mostra a comparação quando o perfil bate com os aptos ±3%);
+  (4) sinal "cabine" (3+ eleitores de 6 cargos SEGUIDOS com menos de 25 s na cabine, ou 10+ no dia: 10 seções) no lugar de "rapidos";
+  sem o arquivo de medidas o sinal antigo continua (é o que o teste sintético cobre). Rotina nova depois de baixar logs:
+  `python eleitores_urna.py`, `python medidas_eleitores.py`, `python gerar_site.py`. Teste sintético: 45/45.
+- **Aba "Simule o 2º turno" (12/out, noite; pedido do usuário):** `TELAS.turno2` no app.js, logo depois de Panorama no menu; na barra de
+  recorte aparece o seletor "Disputa" (8 disputas: presidente + governos de AC, AM, DF, ES, RJ, RN, TO). Presidente: Flavio Bolsonaro
+  56.104.503 × Lula 53.879.538 (diferença 2.224.965); 9.321.993 votos de quem ficou de fora. Cenário de presidente = votos do 1º turno +
+  Grupo 1 (votos de quem ficou de fora menos 449.378 que anulam) + Grupo 2 (776.737 votos novos: 578.779 ausentes que voltam + 197.958
+  brancos que escolhem); saldo **+327.359** votos válidos = o de 2022 (+322.634) × eleitorado 2026/2022 (número aprovado pelo usuário; a
+  parcela dos brancos fecha a conta). Por que 2022: os dois finalistas somaram 91,6% no 1º turno (2026: 92,2%; 2010/14/18: 75–80%) e foi a
+  única eleição em que a abstenção caiu no 2º turno; a aba mostra a tabela e o intervalo das outras (−2.211.996 a +1.518.471).
+  Governadores: sem a referência de 2022 (decisão do assistente, explicada na tela: a referência é de disputa polarizada de presidente);
+  têm só a divisão dos votos de quem ficou de fora e um controle "não escolhem nenhum dos dois" que começa em zero. Cores neutras
+  (verde-azulado 1º colocado, roxo 2º), sem cor de partido. Nomes = nome de urna do TSE. Avisos "é uma conta, não uma previsão" na tela.
+  Teste sintético: 48/48. Depois do 2º turno a aba deve passar a mostrar o que aconteceu (comparação seção por seção): a fazer.
+- Ideias em aberto com o usuário: frase "o leitor voltou a funcionar às Xh" no detalhe; linha no detalhe
+  para "dado não conferiu na 1ª tentativa"; trocar o texto do sinal "urna substituída" (nunca dispara em 2026: cada seção tem um só log
+  e uma só urna); usar o BU para preencher digital/sem digital/mesário nas seções com log incompleto.
+- PRÓXIMO também: 2º turno em 25/10 (`baixar_dados.py --turno 2`, `baixar_logs.py --turno 2`, `gerar_site.py --turno 2`, `publicar_pages.ps1 -Turno 2`).
+- Publicar no Mac: `publicar_pages.ps1` precisa do PowerShell (`brew install powershell`, depois `pwsh deploy/publicar_pages.ps1`).
 
 ## 8. Rotinas
 
-- Atualizar dados/código no servidor: no Mac `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `Expand-Archive C:\git\pacote_servidor.zip -DestinationPath C:\git -Force`; `nssm restart esteleicao`.
-- 2º turno (25/10/2026): `python baixar_dados.py --turno 2` e `python baixar_logs.py --turno 2` no Mac, quando o TSE publicar.
-- Testes sem internet: `python gerar_dados_teste.py`, depois `baixar_dados.py --ano 1999 --zip dados/teste_detalhe_votacao_secao.zip` e `baixar_logs.py --zip` para cada `dados/teste_arqurna_*.zip`.
+- Atualizar o GitHub Pages: `.\deploy\publicar_pages.ps1` (ou `-SemGerar` para publicar o `web/` já gerado).
+- Atualizar o site: no Mac `python gerar_site.py` e `python deploy/empacotar.py`; copiar o zip para `C:\git\`; `.\esteleicao\deploy\publicar_site.ps1` (como Administrador).
+- 2º turno (25/10/2026): `python baixar_dados.py --turno 2`, `python baixar_logs.py --turno 2` e `python gerar_site.py --ano 2026 --turno 2` no Mac, quando o TSE publicar. O plano de fiscalização do 2º turno deve usar os dados do 1º.
+- Testes sem internet: `python testar_sem_internet.py` (gera, processa todas as fontes e confere os casos plantados).
 
 ## 9. Preferências e cuidados
 
