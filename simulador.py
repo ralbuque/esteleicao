@@ -153,6 +153,9 @@ def main():
     if not obj:
         raise SystemExit("Faltam dados/secoes_<ano>_t1.parquet e dados/votacao_<ano>_t1_*.parquet, ou nenhuma disputa foi ao 2º turno.")
     if not (SAIDA / "brasil.json").exists():
+        if a.baixar:  # só baixou os nomes: o gerar_site.py grava o turno2.json junto com o resto
+            print("Cadastro de candidatos baixado. Agora rode: python gerar_site.py")
+            return
         raise SystemExit("Gere o site antes (python gerar_site.py); este comando só acrescenta turno2.json.")
     gravar(SAIDA / "turno2.json", obj)
     for d in obj["disputas"]:
