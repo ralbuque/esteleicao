@@ -1,0 +1,9 @@
+# segredos e dados — nunca versionar
+.env
+logs-urnas/
+*.jez
+*.zip
+*.csv
+zeresimas*.csv
+progresso.txt
+__pycache__/
